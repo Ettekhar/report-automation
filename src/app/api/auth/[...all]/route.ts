@@ -18,15 +18,15 @@ async function handler(req: NextRequest) {
 
   console.log(`\n======================================================`);
   console.log(`[AUTH ROUTE HANDLER] Incoming ${req.method} request to: ${pathname}`);
-  console.log(`[AUTH ROUTE HANDLER] Full URL:`, url);
-  console.log(`[AUTH ROUTE HANDLER] Search Params:`, searchParams);
+  console.log(`[AUTH ROUTE HANDLER] Full URL: ${url}`);
+  console.log(`[AUTH ROUTE HANDLER] Search Params: ${JSON.stringify(searchParams)}`);
   console.log(`======================================================`);
 
   try {
     // 1. Fetch dependencies & initialize Better Auth
     console.log(`[AUTH ROUTE HANDLER - STEP 1] Getting request dependencies & D1 instance...`);
     const { auth, d1 } = await getRequestDeps();
-    console.log(`[AUTH ROUTE HANDLER - STEP 1 SUCCESS] D1 Database available:`, !!d1);
+    console.log(`[AUTH ROUTE HANDLER - STEP 1 SUCCESS] D1 Database available: ${!!d1}`);
 
     // 2. Process request through Better Auth
     console.log(`[AUTH ROUTE HANDLER - STEP 2] Calling auth.handler for ${pathname}...`);
@@ -37,7 +37,7 @@ async function handler(req: NextRequest) {
 
     console.log(`[AUTH ROUTE HANDLER - STEP 3 RESULT] Status: ${response.status}`);
     if (locationHeader) {
-      console.log(`[AUTH ROUTE HANDLER - REDIRECT LOCATION] ->`, locationHeader);
+      console.log(`[AUTH ROUTE HANDLER - REDIRECT LOCATION] -> ${locationHeader}`);
     }
     if (setCookieHeader) {
       console.log(`[AUTH ROUTE HANDLER - SET COOKIE PRESENT] -> Yes`);
@@ -45,7 +45,7 @@ async function handler(req: NextRequest) {
 
     return response;
   } catch (err: unknown) {
-    console.error(`[AUTH ROUTE HANDLER - CRITICAL ERROR] Exception during ${pathname}:`, err);
+    console.error(`[AUTH ROUTE HANDLER - CRITICAL ERROR] Exception during ${pathname}: ${String((err as Error)?.stack || (err as Error)?.message || err)}`);
     return new Response(
       JSON.stringify({
         error: "Internal Auth Error",

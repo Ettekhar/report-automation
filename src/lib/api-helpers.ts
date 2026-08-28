@@ -53,14 +53,14 @@ async function getAuthEnv(): Promise<AuthEnv> {
   const betterAuthUrl = env.BETTER_AUTH_URL || process.env.BETTER_AUTH_URL;
   const bootstrapAdminEmail = env.BOOTSTRAP_ADMIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL;
 
-  console.log("[AUTH ENV HELPER] Loaded environment variables:", {
+  console.log(`[AUTH ENV HELPER] Loaded environment variables: ${JSON.stringify({
     hasGoogleClientId: !!googleClientId,
     hasGoogleClientSecret: !!googleClientSecret,
     hasBetterAuthSecret: !!betterAuthSecret,
     hasBetterAuthUrl: !!betterAuthUrl,
     betterAuthUrl: betterAuthUrl || "http://localhost:3000 (default)",
     hasBootstrapEmail: !!bootstrapAdminEmail,
-  });
+  })}`);
 
   return {
     googleClientId,

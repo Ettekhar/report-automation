@@ -37,7 +37,7 @@ export function createAuth(db: D1Database, authEnv: AuthEnv = {}) {
   const baseURL = authEnv.betterAuthUrl ?? process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
   const bootstrapEmail = authEnv.bootstrapAdminEmail ?? process.env.BOOTSTRAP_ADMIN_EMAIL;
 
-  console.log("[AUTH INIT - CONFIG CHECK]", {
+  console.log(`[AUTH INIT - CONFIG CHECK] ${JSON.stringify({
     baseURL,
     hasGoogleClientId: !!clientId,
     googleClientIdSnippet: clientId ? `${clientId.slice(0, 12)}...${clientId.slice(-10)}` : "MISSING",
@@ -45,7 +45,7 @@ export function createAuth(db: D1Database, authEnv: AuthEnv = {}) {
     googleClientSecretLength: clientSecret ? clientSecret.length : 0,
     hasBetterAuthSecret: !!secret,
     bootstrapEmail: bootstrapEmail || "NOT SET",
-  });
+  })}`);
 
   return betterAuth({
     database: drizzleAdapter(drizzleDB, {
