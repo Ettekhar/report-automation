@@ -22,14 +22,22 @@ interface Props {
 interface FormFieldValues {
   totalAssigned: string | number;
   tasksDone: number;
-  tasksDoneLink: string;
+  /** Newline-separated list of completed-task URLs */
+  tasksDoneLinks: string;
   inReview: number;
   inProgress: number;
   overdueTasks: number;
   overdueDependencies: number;
   overdueDepNote: string;
   tomorrowCount: string | number;
+  /** Maintenance toggle — true = maintenance is running today */
+  maintenanceEnabled: boolean;
+  /** Running total of maintenance completions today */
+  maintenanceTotal: string | number;
 }
+
+// Default always-present tasks-done link (first team link, always counted)
+const DEFAULT_DONE_LINK = "https://app.clickup.com/t/8687wvcgm";
 
 export default function SubmissionForm({ reportDate, isAdmin, existingSubmission, onSaved }: Props) {
   const [step, setStep] = useState<"paste" | "fields" | "preview">("paste");
@@ -41,25 +49,28 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
   const [report, setReport] = useState(existingSubmission?.finalReport ?? "");
   const [reportEdited, setReportEdited] = useState(false);
 
-  // Form fields
-  const initRaw = existingSubmission && existingSubmission.rawInput ? (() => {
-    try {
-      return JSON.parse(existingSubmission.rawInput) || {};
-    } catch {
-      return {};
-    }
+  // Restore from existing submission (edit mode)
+  const initRaw = existingSubmission?.rawInput ? (() => {
+    try { return JSON.parse(existingSubmission.rawInput) || {}; } catch { return {}; }
   })() : {};
+
+  // Resolve legacy tasksDoneLink (string) → tasksDoneLinks (newline-separated)
+  const legacyLinks: string =
+    (initRaw.tasksDoneLinks as string[] | undefined)?.join("\n") ??
+    (initRaw.tasksDoneLink as string | undefined) ?? "";
 
   const [fields, setFields] = useState<FormFieldValues>({
     totalAssigned: initRaw.totalAssigned ?? "",
     tasksDone: initRaw.tasksDone ?? 0,
-    tasksDoneLink: initRaw.tasksDoneLink ?? "",
+    tasksDoneLinks: legacyLinks,
     inReview: initRaw.inReview ?? 0,
     inProgress: initRaw.inProgress ?? 0,
     overdueTasks: initRaw.overdueTasks ?? 0,
     overdueDependencies: initRaw.overdueDependencies ?? 0,
     overdueDepNote: initRaw.overdueDepNote ?? "",
     tomorrowCount: initRaw.tomorrowCount ?? "",
+    maintenanceEnabled: initRaw.maintenanceEnabled ?? false,
+    maintenanceTotal: initRaw.maintenanceTotal ?? "",
   });
 
   // Load team links
@@ -70,31 +81,53 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
       .catch(() => {});
   }, []);
 
+  // ── Parser ────────────────────────────────────────────────────────────────
   function parseWhatsApp() {
     if (!rawText.trim()) { setStep("fields"); return; }
     const blocks = parseMessages(rawText);
     const counts = extractStatusCounts(blocks);
-    const links = extractLinks(rawText);
+    const allLinks = extractLinks(rawText);
+
+    // Build the done-links textarea:
+    // • Always start with the default link.
+    // • Append any links that the parser found as explicitly "completed".
+    const detectedDoneLinks = counts.completedLinks.filter(
+      (u) => u !== DEFAULT_DONE_LINK
+    );
+    const doneLinksStr = [DEFAULT_DONE_LINK, ...detectedDoneLinks].join("\n");
 
     setFields((f) => ({
       ...f,
       inReview: counts.inReview,
       inProgress: counts.inProgress,
-      tasksDone: counts.done,
+      tasksDone: counts.done || 1,          // always at least 1 (default link)
       overdueDependencies: counts.overdueDependencies,
       overdueTasks: counts.overdue,
       tomorrowCount: counts.inProgress,
+      tasksDoneLinks: doneLinksStr,
+      // Keep existing maintenance total if user already set it; otherwise use parsed
+      maintenanceTotal:
+        f.maintenanceTotal !== "" && f.maintenanceTotal !== 0
+          ? f.maintenanceTotal
+          : counts.maintenanceTotal || "",
     }));
-    setParsedLinks(links);
+
+    setParsedLinks(allLinks);
     setStep("fields");
   }
 
+  // ── Report builder ─────────────────────────────────────────────────────────
   function buildInput(): ReportInput {
+    const doneLinks = (fields.tasksDoneLinks as string)
+      .split(/[\r\n]+/)
+      .map((u) => u.trim())
+      .filter(Boolean);
+
     return {
       date: reportDate,
       totalAssigned: fields.totalAssigned !== "" ? Number(fields.totalAssigned) : null,
       tasksDone: Number(fields.tasksDone),
-      tasksDoneLink: fields.tasksDoneLink || null,
+      tasksDoneLinks: doneLinks,
       inReview: Number(fields.inReview),
       inProgress: Number(fields.inProgress),
       overdueTasks: Number(fields.overdueTasks),
@@ -102,6 +135,8 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
       overdueDepNote: fields.overdueDepNote || null,
       tomorrowCount: fields.tomorrowCount !== "" ? Number(fields.tomorrowCount) : null,
       teamTaskLinks: teamLinks.map((l) => l.url),
+      maintenanceEnabled: fields.maintenanceEnabled,
+      maintenanceTotal: fields.maintenanceTotal !== "" ? Number(fields.maintenanceTotal) : null,
     };
   }
 
@@ -117,6 +152,10 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
     try {
       const payload = {
         ...fields,
+        tasksDoneLinks: (fields.tasksDoneLinks as string)
+          .split(/[\r\n]+/)
+          .map((u: string) => u.trim())
+          .filter(Boolean),
         date: reportDate,
         rawWhatsappText: rawText || null,
         finalReport: reportEdited ? report : undefined,
@@ -139,6 +178,7 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
     }
   }
 
+  // ── Field renderers ────────────────────────────────────────────────────────
   const numField = (key: keyof FormFieldValues, label: string) => (
     <div className="field">
       <label className="label" htmlFor={`field-${key}`}>{label}</label>
@@ -146,7 +186,7 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
         id={`field-${key}`}
         type="number"
         className="input"
-        value={fields[key]}
+        value={fields[key] as string | number}
         onChange={(e) => setFields((f) => ({ ...f, [key]: e.target.value }))}
         min={0}
       />
@@ -199,7 +239,7 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
               id="raw-whatsapp"
               className="textarea input-mono"
               rows={10}
-              placeholder={"[7:46 pm, 18/08/2026] +880 1936-579811: Daily task\nthewentworthrestaurants fixing complete + speed up\n..."}
+              placeholder={"[7:46 pm, 18/08/2026] +880 1936-579811: Daily task\nMaintenance - 3 Completed\nCompleted - 1 Task Name\nhttps://app.clickup.com/t/...\n..."}
               value={rawText}
               onChange={(e) => setRawText(e.target.value)}
             />
@@ -210,7 +250,7 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
 
           {parsedLinks.length > 0 && (
             <div style={{ marginTop: "1rem" }}>
-              <p className="label">Links found (click to review)</p>
+              <p className="label">All links found (click to review)</p>
               {parsedLinks.map((l) => (
                 <div key={l} style={{ fontSize: "0.8rem", padding: "2px 0" }}>
                   <a href={l} target="_blank" rel="noopener noreferrer">{l}</a>
@@ -228,6 +268,7 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
             Auto-filled from chat (edit if needed). Fields marked * come from ClickUp.
           </p>
 
+          {/* Status Counts */}
           <div className="card-sm" style={{ marginBottom: "1rem" }}>
             <p className="label" style={{ marginBottom: "0.75rem" }}>Status counts</p>
             <div className="grid-form">
@@ -239,14 +280,103 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
             </div>
           </div>
 
+          {/* ── Maintenance Toggle ──────────────────────────────────── */}
+          <div className="card-sm" style={{ marginBottom: "1rem" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+              <p className="label" style={{ marginBottom: 0 }}>🔧 Maintenance</p>
+              {/* Toggle switch */}
+              <label
+                htmlFor="maintenance-toggle"
+                style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}
+              >
+                <span style={{ fontSize: "0.82rem", color: fields.maintenanceEnabled ? "var(--color-success, #22c55e)" : "#64748b" }}>
+                  {fields.maintenanceEnabled ? "ON" : "OFF"}
+                </span>
+                <div
+                  onClick={() => setFields((f) => ({ ...f, maintenanceEnabled: !f.maintenanceEnabled }))}
+                  id="maintenance-toggle"
+                  role="switch"
+                  aria-checked={fields.maintenanceEnabled}
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") setFields((f) => ({ ...f, maintenanceEnabled: !f.maintenanceEnabled })); }}
+                  style={{
+                    width: 44,
+                    height: 24,
+                    borderRadius: 12,
+                    background: fields.maintenanceEnabled ? "var(--color-brand-500, #6366f1)" : "rgba(255,255,255,0.15)",
+                    position: "relative",
+                    transition: "background 0.2s",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: "50%",
+                    background: "#fff",
+                    position: "absolute",
+                    top: 3,
+                    left: fields.maintenanceEnabled ? 23 : 3,
+                    transition: "left 0.2s",
+                  }} />
+                </div>
+              </label>
+            </div>
+
+            {fields.maintenanceEnabled && (
+              <div className="grid-form">
+                <div className="field">
+                  <label className="label" htmlFor="field-maintenanceTotal">
+                    Total Maintenance Completed (today)
+                  </label>
+                  <input
+                    id="field-maintenanceTotal"
+                    type="number"
+                    className="input"
+                    min={0}
+                    value={fields.maintenanceTotal as string | number}
+                    onChange={(e) => setFields((f) => ({ ...f, maintenanceTotal: e.target.value }))}
+                    placeholder="e.g. 9"
+                  />
+                  <p style={{ fontSize: "0.75rem", color: "#64748b", marginTop: 4 }}>
+                    Auto-summed from parsed messages. Add any previously completed today if editing.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ClickUp fields */}
           <div className="card-sm" style={{ marginBottom: "1rem" }}>
             <p className="label" style={{ marginBottom: "0.75rem" }}>ClickUp fields *</p>
             <div className="grid-form">
               {numField("totalAssigned", "Total Assigned Tasks")}
               {numField("tasksDone", "Tasks Done")}
-              {textField("tasksDoneLink", "Tasks Done Link", "https://app.clickup.com/t/...")}
               {numField("tomorrowCount", "Tomorrow's Plan Count")}
               {textField("overdueDepNote", "Overdue-dep note", "( all are developments task )")}
+            </div>
+
+            {/* Tasks-Done Links (multi-line textarea) */}
+            <div className="field" style={{ marginTop: "0.75rem" }}>
+              <label className="label" htmlFor="field-tasksDoneLinks">
+                Completed Task Links
+                <span style={{ fontWeight: 400, color: "#64748b", marginLeft: 6, fontSize: "0.75rem" }}>
+                  (one URL per line — auto-detected from chat)
+                </span>
+              </label>
+              <textarea
+                id="field-tasksDoneLinks"
+                className="textarea input-mono"
+                rows={4}
+                placeholder={`${DEFAULT_DONE_LINK}\nhttps://app.clickup.com/t/...`}
+                value={fields.tasksDoneLinks as string}
+                onChange={(e) => setFields((f) => ({ ...f, tasksDoneLinks: e.target.value }))}
+                style={{ fontSize: "0.8rem" }}
+              />
+              <p style={{ fontSize: "0.75rem", color: "#64748b", marginTop: 4 }}>
+                The first link is always the shared daily report link. Any detected "completed" links from the chat are added below it automatically.
+              </p>
             </div>
           </div>
 
@@ -295,7 +425,7 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
             <textarea
               id="report-output"
               className="textarea input-mono"
-              rows={16}
+              rows={18}
               value={report}
               onChange={(e) => { setReport(e.target.value); setReportEdited(true); }}
             />
@@ -317,7 +447,7 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
               disabled={saving}
               id="save-submission-btn"
             >
-              {saving ? <><span className="spinner" /> Saving…</> : <>💾 {existingSubmission ? "Update" : "Save"} submission</>}
+              {saving ? <><span className="spinner" /> Saving…</> : <>{existingSubmission ? "💾 Update" : "💾 Save"} submission</>}
             </button>
             <button
               className="btn btn-ghost"

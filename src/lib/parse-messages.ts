@@ -18,13 +18,22 @@ export interface StatusCounts {
   done: number;
   overdue: number;
   overdueDependencies: number;
+  /** Sum of "Maintenance - N Completed" across all message blocks. */
+  maintenanceTotal: number;
+  /**
+   * URLs that were explicitly marked as completed by a team member.
+   * A URL qualifies when it appears on the same line as, or immediately after,
+   * a "completed / done" keyword — AND is NOT associated with an "in review"
+   * status line (false-positive guard).
+   */
+  completedLinks: string[];
 }
 
 // ---------------------------------------------------------------------------
 // Parse raw WhatsApp export into message blocks
 // ---------------------------------------------------------------------------
 const MSG_REGEX =
-  /\[\s*(\d{1,2}[:.]\d{2}\s?[ap]\.?m\.?)\s*,\s*(\d{1,2}\/\d{1,2}\/\d{2,4})\s*\]\s*([^:]+):\s*/gi;
+  /\[\s*(\d{1,2}[:.]?\d{2}\s?[ap]\.?m\.?)\s*,\s*(\d{1,2}\/\d{1,2}\/\d{2,4})\s*\]\s*([^:]+):\s*/gi;
 
 export function parseMessages(raw: string): MessageBlock[] {
   const matches = [...raw.matchAll(MSG_REGEX)];
@@ -95,7 +104,101 @@ const PATTERNS = {
   overdue: [
     new RegExp(`over[\\s\\-]?due${SEP}(\\d+)(?!.*depend)`, "i"),
   ],
+  /**
+   * Matches "Maintenance - N Completed" / "Maintenances - N completed" etc.
+   * Captures the numeric count.
+   */
+  maintenance: [
+    new RegExp(`mainten[a-z]{0,5}${SEP}(\\d+)${SEP}comp[a-z]{0,6}`, "i"),
+    new RegExp(`comp[a-z]{0,6}${SEP}(\\d+)${SEP}mainten[a-z]{0,5}`, "i"),
+  ],
 };
+
+// ---------------------------------------------------------------------------
+// Maintenance count extractor
+// ---------------------------------------------------------------------------
+/**
+ * Returns the total number of maintenance tasks completed today,
+ * summed across all message blocks.
+ *
+ * Parses lines like:
+ *   "Maintenance - 3 Completed"
+ *   "Maintenances - 2 completed"
+ */
+export function extractMaintenanceCount(blocks: MessageBlock[]): number {
+  return sumField(blocks, PATTERNS.maintenance);
+}
+
+// ---------------------------------------------------------------------------
+// Completed-task link extractor
+// ---------------------------------------------------------------------------
+const URL_RE = /https?:\/\/\S+/g;
+
+/**
+ * Returns URLs that are explicitly associated with a COMPLETED task in the
+ * raw WhatsApp messages. A URL is classified as a "done link" when it:
+ *
+ *   1. Appears on the **same line** as a "completed" / "done" keyword, OR
+ *   2. Appears on the **next non-empty line** after such a keyword line.
+ *
+ * False-positive guard: URLs that appear on a line that also contains
+ * "in review" / "in progress" are excluded, even if a done keyword also
+ * appears on that line.
+ *
+ * Deduplication is applied across the whole raw text.
+ */
+export function extractCompletedLinks(blocks: MessageBlock[]): string[] {
+  const found = new Set<string>();
+
+  for (const block of blocks) {
+    const lines = block.text.split(/\r?\n/);
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lineLower = line.toLowerCase();
+
+      // Skip lines that are "in review" or "in progress" — those are NOT done
+      const isReviewLine = /\bin[\s-]*re?v[a-z]*\b/i.test(line);
+      const isProgressLine = /\bin[\s-]*pro?g[a-z]*\b/i.test(line);
+      if (isReviewLine || isProgressLine) continue;
+
+      // Check whether this line contains a "completed / done" keyword
+      const hasDoneKeyword =
+        /\bcomp[a-z]*\b/i.test(lineLower) || /\bdone\b/i.test(lineLower);
+
+      if (hasDoneKeyword) {
+        // 1. Collect URLs on this same line
+        const sameLine = [...line.matchAll(URL_RE)].map((m) =>
+          m[0].replace(/[.,;)]+$/, "")
+        );
+        sameLine.forEach((u) => found.add(u));
+
+        // 2. Look at the next non-empty line for a bare URL
+        if (sameLine.length === 0) {
+          let j = i + 1;
+          while (j < lines.length && !lines[j].trim()) j++;
+          if (j < lines.length) {
+            const nextLine = lines[j].trim();
+            // Accept the next line ONLY if it is (mostly) a URL
+            const nextUrls = [...nextLine.matchAll(URL_RE)].map((m) =>
+              m[0].replace(/[.,;)]+$/, "")
+            );
+            // Reject if the next line also contains an in-review / in-progress keyword
+            const nextLower = nextLine.toLowerCase();
+            const nextIsStatus =
+              /\bin[\s-]*re?v[a-z]*\b/i.test(nextLine) ||
+              /\bin[\s-]*pro?g[a-z]*\b/i.test(nextLine);
+            if (!nextIsStatus && nextUrls.length > 0) {
+              nextUrls.forEach((u) => found.add(u));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return [...found];
+}
 
 /**
  * Auto-sum status counts from parsed message blocks.
@@ -108,6 +211,8 @@ export function extractStatusCounts(blocks: MessageBlock[]): StatusCounts {
     done: sumField(blocks, PATTERNS.done),
     overdueDependencies: sumField(blocks, PATTERNS.overdueDep),
     overdue: sumField(blocks, PATTERNS.overdue),
+    maintenanceTotal: extractMaintenanceCount(blocks),
+    completedLinks: extractCompletedLinks(blocks),
   };
 }
 

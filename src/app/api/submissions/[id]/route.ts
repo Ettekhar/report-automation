@@ -43,6 +43,9 @@ interface PatchSubmissionBody {
   changeNote?: string;
   totalAssigned?: number | null;
   tasksDone?: number;
+  /** New: array of completed-task URLs */
+  tasksDoneLinks?: string[] | null;
+  /** Legacy single-link field — kept for backward compat */
   tasksDoneLink?: string | null;
   inReview?: number;
   inProgress?: number;
@@ -51,6 +54,10 @@ interface PatchSubmissionBody {
   overdueDepNote?: string | null;
   tomorrowCount?: number | null;
   finalReport?: string;
+  /** Maintenance toggle — true when maintenance is running today */
+  maintenanceEnabled?: boolean;
+  /** Running total of maintenance completions today */
+  maintenanceTotal?: number | null;
   [key: string]: unknown;
 }
 
@@ -109,10 +116,17 @@ export async function PATCH(
     });
     const teamLinks = links.map((l) => l.url);
 
+    // Resolve maintenance values: prefer body values, fall back to stored rawInput
+    let storedRaw: Record<string, unknown> = {};
+    try { storedRaw = JSON.parse(row.rawInput); } catch { storedRaw = {}; }
+
     const input: ReportInput = {
       date: row.reportDate,
       totalAssigned: body.totalAssigned !== undefined ? body.totalAssigned : row.totalAssigned,
       tasksDone: body.tasksDone !== undefined ? body.tasksDone : row.tasksDone,
+      tasksDoneLinks: body.tasksDoneLinks !== undefined
+        ? body.tasksDoneLinks
+        : (storedRaw.tasksDoneLinks as string[] | undefined) ?? null,
       tasksDoneLink: body.tasksDoneLink !== undefined ? body.tasksDoneLink : row.tasksDoneLink,
       inReview: body.inReview !== undefined ? body.inReview : row.inReview,
       inProgress: body.inProgress !== undefined ? body.inProgress : row.inProgress,
@@ -121,22 +135,21 @@ export async function PATCH(
       overdueDepNote: body.overdueDepNote !== undefined ? body.overdueDepNote : row.overdueDepNote,
       tomorrowCount: body.tomorrowCount !== undefined ? body.tomorrowCount : row.tomorrowCount,
       teamTaskLinks: teamLinks,
+      maintenanceEnabled: body.maintenanceEnabled !== undefined
+        ? body.maintenanceEnabled
+        : (storedRaw.maintenanceEnabled as boolean | undefined) ?? false,
+      maintenanceTotal: body.maintenanceTotal !== undefined
+        ? body.maintenanceTotal
+        : (storedRaw.maintenanceTotal as number | undefined) ?? null,
     };
 
     const finalReport = body.finalReport ?? generateReport(input);
-
-    let parsedOriginalRaw: Record<string, unknown> = {};
-    try {
-      parsedOriginalRaw = JSON.parse(row.rawInput);
-    } catch {
-      parsedOriginalRaw = {};
-    }
 
     await db
       .update(submissions)
       .set({
         ...input,
-        rawInput: JSON.stringify({ ...parsedOriginalRaw, ...body }),
+        rawInput: JSON.stringify({ ...storedRaw, ...body }),
         finalReport,
         editedBy: session.userId,
         editedAt: new Date(),

@@ -56,6 +56,9 @@ interface PostSubmissionBody {
   date: string;
   totalAssigned?: number | null;
   tasksDone?: number;
+  /** New: array of completed-task URLs */
+  tasksDoneLinks?: string[] | null;
+  /** Legacy single-link field — kept for backward compat */
   tasksDoneLink?: string | null;
   inReview?: number;
   inProgress?: number;
@@ -64,6 +67,10 @@ interface PostSubmissionBody {
   overdueDepNote?: string | null;
   tomorrowCount?: number | null;
   rawWhatsappText?: string | null;
+  /** Maintenance toggle — true when maintenance is running today */
+  maintenanceEnabled?: boolean;
+  /** Running total of maintenance completions today */
+  maintenanceTotal?: number | null;
   [key: string]: unknown;
 }
 
@@ -88,7 +95,8 @@ export async function POST(req: Request) {
       date: body.date,
       totalAssigned: body.totalAssigned ?? null,
       tasksDone: body.tasksDone ?? 0,
-      tasksDoneLink: body.tasksDoneLink ?? null,
+      tasksDoneLinks: body.tasksDoneLinks ?? null,
+      tasksDoneLink: body.tasksDoneLink ?? null, // legacy fallback
       inReview: body.inReview ?? 0,
       inProgress: body.inProgress ?? 0,
       overdueTasks: body.overdueTasks ?? 0,
@@ -96,6 +104,8 @@ export async function POST(req: Request) {
       overdueDepNote: body.overdueDepNote ?? null,
       tomorrowCount: body.tomorrowCount ?? null,
       teamTaskLinks: teamLinks,
+      maintenanceEnabled: body.maintenanceEnabled ?? false,
+      maintenanceTotal: body.maintenanceTotal ?? null,
     };
 
     const finalReport = generateReport(input);
