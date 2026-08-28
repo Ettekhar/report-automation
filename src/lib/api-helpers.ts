@@ -48,11 +48,11 @@ export async function getD1(): Promise<D1Database> {
 async function getAuthEnv(): Promise<AuthEnv> {
   const env = await getWorkerEnv();
   return {
-    googleClientId: env.GOOGLE_CLIENT_ID,
-    googleClientSecret: env.GOOGLE_CLIENT_SECRET,
-    betterAuthSecret: env.BETTER_AUTH_SECRET,
-    betterAuthUrl: env.BETTER_AUTH_URL,
-    bootstrapAdminEmail: env.BOOTSTRAP_ADMIN_EMAIL,
+    googleClientId: env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+    googleClientSecret: env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET,
+    betterAuthSecret: env.BETTER_AUTH_SECRET || process.env.BETTER_AUTH_SECRET,
+    betterAuthUrl: env.BETTER_AUTH_URL || process.env.BETTER_AUTH_URL,
+    bootstrapAdminEmail: env.BOOTSTRAP_ADMIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL,
   };
 }
 

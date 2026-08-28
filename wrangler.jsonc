@@ -14,5 +14,10 @@
       "database_name": "daily-report-db",
       "database_id": "aec62ee4-b689-48ad-8c9d-899579749b57"
     }
-  ]
+  ],
+  "vars": {
+    "BETTER_AUTH_URL": "https://report-automation.taion16240.workers.dev",
+    "BOOTSTRAP_ADMIN_EMAIL": "Taion@razibmarketing.net",
+    "TEAM_TIMEZONE": "Asia/Dhaka"
+  }
 }
