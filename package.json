@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "opennextjs-cloudflare build",
+    "build:next": "next build",
     "start": "next start",
-    "build:cloudflare": "opennextjs-cloudflare",
+    "build:cloudflare": "opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare && wrangler pages deploy",
+    "deploy": "opennextjs-cloudflare deploy",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 execute daily-report-db --local --file=./migrations/0000_initial.sql",
     "db:migrate:prod": "wrangler d1 execute daily-report-db --remote --file=./migrations/0000_initial.sql"

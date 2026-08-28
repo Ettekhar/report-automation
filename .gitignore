@@ -7,8 +7,9 @@ node_modules/
 .next/
 out/
 
-# Cloudflare Wrangler
+# Cloudflare Wrangler & OpenNext
 .wrangler/
+.open-next/
 
 # Production & Build artifacts
 build/
