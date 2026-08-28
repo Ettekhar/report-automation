@@ -24,7 +24,7 @@ export const REPORT_CONFIG = {
     overdueTasks: "Over Due Tasks",
     overdueDependencies: "Over Due Tasks (Dependencies)",
     teamLinks: "Total {n} development task",
-    tomorrowPlan: "Tomorrow's Team Plan/Tasks on Click-Up",
+    tomorrowPlan: "Tomorrow’s Team Plan/Tasks on Click-Up",
     maintenanceOngoing: "* Maintenance is on-going*",
     maintenanceTotal: "Total Maintenance completed",
   },
@@ -127,9 +127,11 @@ export function generateReport(input: ReportInput): string {
 
   // ── Maintenance block (when toggle is ON) ─────────────────────────────
   if (input.maintenanceEnabled) {
+    lines.push("");
     lines.push(cfg.labels.maintenanceOngoing);
     const total = input.maintenanceTotal ?? 0;
     lines.push(`${cfg.labels.maintenanceTotal} - ${total}`);
+    lines.push("");
   }
 
   // ── Status counts ──────────────────────────────────────────────────────
@@ -139,8 +141,10 @@ export function generateReport(input: ReportInput): string {
     `${cfg.labels.overdueTasks} = ${pad(input.overdueTasks, z)}`
   );
 
+  lines.push("");
+
   const depLine =
-    `${cfg.labels.overdueDependencies} = ${input.overdueDependencies}` +
+    `${cfg.labels.overdueDependencies} = ${pad(input.overdueDependencies, z)}` +
     (input.overdueDepNote ? ` ${input.overdueDepNote}` : "");
   lines.push(depLine);
 
@@ -150,6 +154,8 @@ export function generateReport(input: ReportInput): string {
   if (linkCount > 0) {
     lines.push(...input.teamTaskLinks);
   }
+
+  lines.push("");
 
   // ── Tomorrow plan ──────────────────────────────────────────────────────
   const tomorrow = input.tomorrowCount ?? input.inProgress;

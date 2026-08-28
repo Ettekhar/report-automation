@@ -56,43 +56,22 @@ export function parseMessages(raw: string): MessageBlock[] {
 }
 
 // ---------------------------------------------------------------------------
-// Extract a numeric count from a block of text using regex patterns
-// ---------------------------------------------------------------------------
-function extractCount(text: string, patterns: RegExp[]): number | null {
-  for (const p of patterns) {
-    const m = text.match(p);
-    if (m) return parseInt(m[1] ?? m[2], 10);
-  }
-  return null;
-}
-
-function sumField(blocks: MessageBlock[], patterns: RegExp[]): number {
-  let total = 0;
-  for (const b of blocks) {
-    const val = extractCount(b.text, patterns);
-    if (val !== null) total += val;
-  }
-  return total;
-}
-
-// ---------------------------------------------------------------------------
-// Build typo-tolerant regex patterns for each field
-// (same logic as original tool — word stems + fuzzy chars)
+// Extract all numeric counts from text using regex patterns across all lines
 // ---------------------------------------------------------------------------
 const SEP = "[\\s:.\\-]*";
 
 const PATTERNS = {
   review: [
-    new RegExp(`re[a-z]{0,3}v[a-z]{0,3}iew${SEP}(\\d+)`, "i"),
-    new RegExp(`(\\d+)${SEP}re[a-z]{0,3}view`, "i"),
+    new RegExp(`\\bre[a-z]{0,3}v[a-z]{0,3}iew${SEP}(\\d+)`, "i"),
+    new RegExp(`(\\d+)${SEP}\\bre[a-z]{0,3}view`, "i"),
   ],
   progress: [
-    new RegExp(`prog[a-z]{0,4}${SEP}(\\d+)`, "i"),
-    new RegExp(`(\\d+)${SEP}prog[a-z]{0,4}`, "i"),
+    new RegExp(`\\bprog[a-z]{0,4}${SEP}(\\d+)`, "i"),
+    new RegExp(`(\\d+)${SEP}\\bprog[a-z]{0,4}`, "i"),
   ],
   done: [
-    new RegExp(`comp[a-z]{0,6}${SEP}(\\d+)`, "i"),
-    new RegExp(`(\\d+)${SEP}comp[a-z]{0,6}`, "i"),
+    new RegExp(`\\bcomp[a-z]{0,6}${SEP}(\\d+)`, "i"),
+    new RegExp(`(\\d+)${SEP}\\bcomp[a-z]{0,6}`, "i"),
     new RegExp(`\\bdone${SEP}(\\d+)`, "i"),
   ],
   overdueDep: [
@@ -105,26 +84,44 @@ const PATTERNS = {
     new RegExp(`over[\\s\\-]?due${SEP}(\\d+)(?!.*depend)`, "i"),
   ],
   /**
-   * Matches "Maintenance - N Completed" / "Maintenances - N completed" etc.
-   * Captures the numeric count.
+   * Matches "Maintenance - N Completed" / "Maintenances - N completed" / "Maintenance completed - N", etc.
    */
   maintenance: [
     new RegExp(`mainten[a-z]{0,5}${SEP}(\\d+)${SEP}comp[a-z]{0,6}`, "i"),
+    new RegExp(`mainten[a-z]{0,5}${SEP}comp[a-z]{0,6}${SEP}(\\d+)`, "i"),
     new RegExp(`comp[a-z]{0,6}${SEP}(\\d+)${SEP}mainten[a-z]{0,5}`, "i"),
+    new RegExp(`comp[a-z]{0,6}${SEP}mainten[a-z]{0,5}${SEP}(\\d+)`, "i"),
   ],
 };
+
+function extractLineCount(line: string, patterns: RegExp[]): number | null {
+  for (const p of patterns) {
+    const m = line.match(p);
+    if (m) return parseInt(m[1] ?? m[2], 10);
+  }
+  return null;
+}
+
+function sumField(
+  blocks: MessageBlock[],
+  patterns: RegExp[],
+  skipIfRegex?: RegExp
+): number {
+  let total = 0;
+  for (const b of blocks) {
+    const lines = b.text.split(/\r?\n/);
+    for (const line of lines) {
+      if (skipIfRegex && skipIfRegex.test(line)) continue;
+      const val = extractLineCount(line, patterns);
+      if (val !== null) total += val;
+    }
+  }
+  return total;
+}
 
 // ---------------------------------------------------------------------------
 // Maintenance count extractor
 // ---------------------------------------------------------------------------
-/**
- * Returns the total number of maintenance tasks completed today,
- * summed across all message blocks.
- *
- * Parses lines like:
- *   "Maintenance - 3 Completed"
- *   "Maintenances - 2 completed"
- */
 export function extractMaintenanceCount(blocks: MessageBlock[]): number {
   return sumField(blocks, PATTERNS.maintenance);
 }
@@ -139,13 +136,11 @@ const URL_RE = /https?:\/\/\S+/g;
  * raw WhatsApp messages. A URL is classified as a "done link" when it:
  *
  *   1. Appears on the **same line** as a "completed" / "done" keyword, OR
- *   2. Appears on the **next non-empty line** after such a keyword line.
+ *   2. Appears on subsequent non-empty line(s) under a "completed" keyword,
+ *      stopping if another status section (in review, in progress, etc.) begins.
  *
- * False-positive guard: URLs that appear on a line that also contains
- * "in review" / "in progress" are excluded, even if a done keyword also
- * appears on that line.
- *
- * Deduplication is applied across the whole raw text.
+ * False-positive guard: URLs on lines containing "in review" or "in progress"
+ * are excluded.
  */
 export function extractCompletedLinks(blocks: MessageBlock[]): string[] {
   const found = new Set<string>();
@@ -157,7 +152,7 @@ export function extractCompletedLinks(blocks: MessageBlock[]): string[] {
       const line = lines[i];
       const lineLower = line.toLowerCase();
 
-      // Skip lines that are "in review" or "in progress" — those are NOT done
+      // Skip lines that are "in review" or "in progress"
       const isReviewLine = /\bin[\s-]*re?v[a-z]*\b/i.test(line);
       const isProgressLine = /\bin[\s-]*pro?g[a-z]*\b/i.test(line);
       if (isReviewLine || isProgressLine) continue;
@@ -173,25 +168,36 @@ export function extractCompletedLinks(blocks: MessageBlock[]): string[] {
         );
         sameLine.forEach((u) => found.add(u));
 
-        // 2. Look at the next non-empty line for a bare URL
-        if (sameLine.length === 0) {
-          let j = i + 1;
-          while (j < lines.length && !lines[j].trim()) j++;
-          if (j < lines.length) {
-            const nextLine = lines[j].trim();
-            // Accept the next line ONLY if it is (mostly) a URL
-            const nextUrls = [...nextLine.matchAll(URL_RE)].map((m) =>
-              m[0].replace(/[.,;)]+$/, "")
-            );
-            // Reject if the next line also contains an in-review / in-progress keyword
-            const nextLower = nextLine.toLowerCase();
-            const nextIsStatus =
-              /\bin[\s-]*re?v[a-z]*\b/i.test(nextLine) ||
-              /\bin[\s-]*pro?g[a-z]*\b/i.test(nextLine);
-            if (!nextIsStatus && nextUrls.length > 0) {
-              nextUrls.forEach((u) => found.add(u));
-            }
+        // 2. Look at subsequent lines until next section or block ends
+        let j = i + 1;
+        while (j < lines.length) {
+          const nextLine = lines[j].trim();
+          if (!nextLine) {
+            j++;
+            continue;
           }
+
+          // If the next line starts a new status category (in review, in progress, maintenance), stop
+          const isNextStatus =
+            /\bin[\s-]*re?v[a-z]*\b/i.test(nextLine) ||
+            /\bin[\s-]*pro?g[a-z]*\b/i.test(nextLine) ||
+            /\bmainten[a-z]*\b/i.test(nextLine) ||
+            /\bover[\\s\\-]?due\b/i.test(nextLine);
+
+          if (isNextStatus) break;
+
+          const nextUrls = [...nextLine.matchAll(URL_RE)].map((m) =>
+            m[0].replace(/[.,;)]+$/, "")
+          );
+
+          if (nextUrls.length > 0) {
+            nextUrls.forEach((u) => found.add(u));
+            break; // Found the link for this completed item
+          }
+
+          j++;
+          // Don't search too far away (at most 3 lines)
+          if (j - i > 3) break;
         }
       }
     }
@@ -208,7 +214,7 @@ export function extractStatusCounts(blocks: MessageBlock[]): StatusCounts {
   return {
     inReview: sumField(blocks, PATTERNS.review),
     inProgress: sumField(blocks, PATTERNS.progress),
-    done: sumField(blocks, PATTERNS.done),
+    done: sumField(blocks, PATTERNS.done, /\bmainten[a-z]*\b/i),
     overdueDependencies: sumField(blocks, PATTERNS.overdueDep),
     overdue: sumField(blocks, PATTERNS.overdue),
     maintenanceTotal: extractMaintenanceCount(blocks),

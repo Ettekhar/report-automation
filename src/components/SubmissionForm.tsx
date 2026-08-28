@@ -95,21 +95,25 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
       (u) => u !== DEFAULT_DONE_LINK
     );
     const doneLinksStr = [DEFAULT_DONE_LINK, ...detectedDoneLinks].join("\n");
+    const totalDoneCount = 1 + detectedDoneLinks.length;
 
     setFields((f) => ({
       ...f,
       inReview: counts.inReview,
       inProgress: counts.inProgress,
-      tasksDone: counts.done || 1,          // always at least 1 (default link)
+      tasksDone: Math.max(counts.done, totalDoneCount),
       overdueDependencies: counts.overdueDependencies,
       overdueTasks: counts.overdue,
       tomorrowCount: counts.inProgress,
       tasksDoneLinks: doneLinksStr,
-      // Keep existing maintenance total if user already set it; otherwise use parsed
+      maintenanceEnabled:
+        counts.maintenanceTotal > 0 ? true : f.maintenanceEnabled,
       maintenanceTotal:
-        f.maintenanceTotal !== "" && f.maintenanceTotal !== 0
+        counts.maintenanceTotal > 0
+          ? counts.maintenanceTotal
+          : f.maintenanceTotal !== "" && f.maintenanceTotal !== 0
           ? f.maintenanceTotal
-          : counts.maintenanceTotal || "",
+          : "",
     }));
 
     setParsedLinks(allLinks);
