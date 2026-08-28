@@ -35,6 +35,13 @@ export function createAuth(db: D1Database) {
       },
     },
 
+    trustedOrigins: [
+      "http://localhost:3000",
+      "https://*.workers.dev",
+      "https://*.pages.dev",
+      process.env.BETTER_AUTH_URL || "",
+    ].filter(Boolean),
+
     user: {
       additionalFields: {
         role: {
