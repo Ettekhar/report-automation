@@ -6,8 +6,6 @@ import { eq } from "drizzle-orm";
 import { generateReport, type ReportInput } from "@/lib/report-formatter";
 import { isWithinEditCutoff } from "@/lib/timezone";
 
-export const runtime = "edge";
-
 // ---------------------------------------------------------------------------
 // GET /api/submissions/[id]
 // ---------------------------------------------------------------------------

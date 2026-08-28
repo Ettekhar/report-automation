@@ -5,7 +5,7 @@ import { submissions, teamTaskLinks } from "@/db/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { generateReport, type ReportInput } from "@/lib/report-formatter";
 
-export const runtime = "edge";
+
 
 // ---------------------------------------------------------------------------
 // GET /api/submissions — list submissions

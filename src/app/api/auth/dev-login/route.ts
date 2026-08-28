@@ -4,7 +4,7 @@ import { users, sessions } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { Role } from "@/lib/permissions";
 
-export const runtime = "edge";
+
 
 interface DevLoginBody {
   email: string;

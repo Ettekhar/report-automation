@@ -4,7 +4,7 @@ import { submissions, users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { FineTuningRecord } from "@/lib/report-formatter";
 
-export const runtime = "edge";
+
 
 /**
  * GET /api/export

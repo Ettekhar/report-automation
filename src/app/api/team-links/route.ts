@@ -4,7 +4,7 @@ import { requirePermission } from "@/lib/permissions";
 import { teamTaskLinks } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
-export const runtime = "edge";
+
 
 // GET /api/team-links — public to all authenticated users
 export async function GET() {

@@ -4,7 +4,7 @@ import { requirePermission } from "@/lib/permissions";
 import { scheduleAssignments } from "@/db/schema";
 import { eq, and, gte, lte, inArray } from "drizzle-orm";
 
-export const runtime = "edge";
+
 
 // ---------------------------------------------------------------------------
 // GET /api/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD

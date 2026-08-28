@@ -5,7 +5,7 @@ import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { Role } from "@/lib/permissions";
 
-export const runtime = "edge";
+
 
 // ---------------------------------------------------------------------------
 // GET /api/users — list all users (admin/reviewer only)
