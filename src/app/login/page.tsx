@@ -5,7 +5,6 @@ import { useState } from "react";
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
-  const [devLoading, setDevLoading] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   async function handleGoogleLogin() {
@@ -17,30 +16,8 @@ export default function LoginPage() {
         callbackURL: "/",
       });
     } catch (err: unknown) {
-      setErrorMsg((err as Error)?.message || "Google sign in failed. Ensure Google Client ID & Secret are set in .env.local");
+      setErrorMsg((err as Error)?.message || "Google sign in failed. Please try again.");
       setLoading(false);
-    }
-  }
-
-  async function handleDevLogin(name: string, email: string, role: "admin" | "member" | "reviewer") {
-    setDevLoading(role);
-    setErrorMsg(null);
-    try {
-      const res = await fetch("/api/auth/dev-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, role }),
-      });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error || "Login failed");
-
-      // Full document navigation so the new session cookie is attached immediately
-      if (role === "admin") window.location.href = "/admin";
-      else if (role === "reviewer") window.location.href = "/reviewer";
-      else window.location.href = "/member";
-    } catch (err: unknown) {
-      setErrorMsg((err as Error)?.message || "Dev login failed");
-      setDevLoading(null);
     }
   }
 
@@ -81,7 +58,7 @@ export default function LoginPage() {
           Team Daily Report
         </h1>
         <p style={{ color: "#94a3b8", fontSize: "0.9rem", marginBottom: "1.75rem" }}>
-          Sign in to access your role-based reporting dashboard.
+          Sign in with your Google account to access your role-based reporting dashboard.
         </p>
 
         {errorMsg && (
@@ -94,8 +71,8 @@ export default function LoginPage() {
         <button
           className="btn btn-google btn-lg"
           onClick={handleGoogleLogin}
-          disabled={loading || !!devLoading}
-          style={{ width: "100%", justifyContent: "center", marginBottom: "1.5rem" }}
+          disabled={loading}
+          style={{ width: "100%", justifyContent: "center" }}
           id="google-sign-in-btn"
         >
           {loading ? (
@@ -111,61 +88,8 @@ export default function LoginPage() {
           {loading ? "Connecting to Google…" : "Continue with Google"}
         </button>
 
-        {/* ── Quick Dev Login (Instant role testing) ────────────────────── */}
-        <div style={{ position: "relative", marginBottom: "1.5rem" }}>
-          <div className="divider" style={{ margin: "0 0 1rem" }} />
-          <span
-            style={{
-              position: "absolute",
-              top: "-10px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              background: "var(--color-surface-1)",
-              padding: "0 10px",
-              fontSize: "0.72rem",
-              color: "#64748b",
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-            }}
-          >
-            Or instant test login
-          </span>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <button
-            className="btn btn-ghost"
-            style={{ width: "100%", justifyContent: "space-between" }}
-            onClick={() => handleDevLogin("Master Admin", "admin@company.com", "admin")}
-            disabled={loading || !!devLoading}
-          >
-            <span>👑 <strong>Master Admin</strong> (admin@company.com)</span>
-            {devLoading === "admin" ? <span className="spinner" /> : <span className="badge badge-admin">Admin</span>}
-          </button>
-
-          <button
-            className="btn btn-ghost"
-            style={{ width: "100%", justifyContent: "space-between" }}
-            onClick={() => handleDevLogin("Alice Developer", "alice@company.com", "member")}
-            disabled={loading || !!devLoading}
-          >
-            <span>👩‍💻 <strong>Alice Member</strong> (alice@company.com)</span>
-            {devLoading === "member" ? <span className="spinner" /> : <span className="badge badge-member">Member</span>}
-          </button>
-
-          <button
-            className="btn btn-ghost"
-            style={{ width: "100%", justifyContent: "space-between" }}
-            onClick={() => handleDevLogin("Bob Reviewer", "bob@company.com", "reviewer")}
-            disabled={loading || !!devLoading}
-          >
-            <span>👁️ <strong>Bob Reviewer</strong> (bob@company.com)</span>
-            {devLoading === "reviewer" ? <span className="spinner" /> : <span className="badge badge-reviewer">Reviewer</span>}
-          </button>
-        </div>
-
         <p style={{ color: "#475569", fontSize: "0.75rem", marginTop: "1.5rem", marginBottom: 0 }}>
-          For real Google accounts: set <code>GOOGLE_CLIENT_ID</code> & <code>GOOGLE_CLIENT_SECRET</code> in <code>.env.local</code>.
+          Only authorized team members can access this dashboard.
         </p>
       </div>
     </main>
