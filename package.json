@@ -8,6 +8,7 @@
     "build": "next build && opennextjs-cloudflare build --skipNextBuild",
     "cf:deploy": "next build && opennextjs-cloudflare build --skipNextBuild && opennextjs-cloudflare deploy",
     "start": "next start",
+    "postinstall": "node scripts/patch-opennext.js",
     "preview": "opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare deploy",
     "db:generate": "drizzle-kit generate",
