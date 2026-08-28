@@ -1,6 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getDB } from "@/db/client";
-import { createAuth } from "@/lib/auth";
+import { createAuth, type AuthEnv } from "@/lib/auth";
 import { headers } from "next/headers";
 import type { Role } from "@/lib/permissions";
 import { PermissionError } from "@/lib/permissions";
@@ -14,13 +14,46 @@ export interface RequestSession {
   userName: string;
 }
 
+/** Typed shape of the Cloudflare Worker's env bindings. */
+interface CloudflareWorkerEnv extends Record<string, unknown> {
+  DB: D1Database;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  BETTER_AUTH_SECRET?: string;
+  BETTER_AUTH_URL?: string;
+  BOOTSTRAP_ADMIN_EMAIL?: string;
+}
+
+/**
+ * Returns the full Cloudflare Worker env (bindings + secrets/vars from Dashboard).
+ */
+async function getWorkerEnv(): Promise<CloudflareWorkerEnv> {
+  const ctx = await getCloudflareContext({ async: true });
+  return ctx.env as CloudflareWorkerEnv;
+}
+
 /**
  * Returns the D1 binding from the Cloudflare request context asynchronously.
  * Use this in every API route and server component.
  */
 export async function getD1(): Promise<D1Database> {
-  const ctx = await getCloudflareContext({ async: true });
-  return ctx.env.DB;
+  const env = await getWorkerEnv();
+  return env.DB;
+}
+
+/**
+ * Extracts Better Auth env vars from the Cloudflare Worker env.
+ * This ensures secrets set in the Cloudflare Dashboard are reliably available.
+ */
+async function getAuthEnv(): Promise<AuthEnv> {
+  const env = await getWorkerEnv();
+  return {
+    googleClientId: env.GOOGLE_CLIENT_ID,
+    googleClientSecret: env.GOOGLE_CLIENT_SECRET,
+    betterAuthSecret: env.BETTER_AUTH_SECRET,
+    betterAuthUrl: env.BETTER_AUTH_URL,
+    bootstrapAdminEmail: env.BOOTSTRAP_ADMIN_EMAIL,
+  };
 }
 
 /**
@@ -28,10 +61,11 @@ export async function getD1(): Promise<D1Database> {
  * current request. Call once per route handler.
  */
 export async function getRequestDeps() {
-  const d1 = await getD1();
-  const db = getDB(d1);
-  const auth = createAuth(d1);
-  return { d1, db, auth };
+  const env = await getWorkerEnv();
+  const db = getDB(env.DB);
+  const authEnv = await getAuthEnv();
+  const auth = createAuth(env.DB, authEnv);
+  return { d1: env.DB, db, auth };
 }
 
 /**

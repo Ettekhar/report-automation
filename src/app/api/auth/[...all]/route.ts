@@ -1,10 +1,11 @@
 import { createAuth } from "@/lib/auth";
-import { getD1 } from "@/lib/api-helpers";
+import { getD1, getRequestDeps } from "@/lib/api-helpers";
 import type { NextRequest } from "next/server";
 
+// Re-use getRequestDeps so we get the auth instance with all env vars
+// properly loaded from the Cloudflare Worker environment.
 async function handler(req: NextRequest) {
-  const d1 = await getD1();
-  const auth = createAuth(d1);
+  const { auth } = await getRequestDeps();
   return auth.handler(req);
 }
 
