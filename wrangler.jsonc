@@ -19,5 +19,21 @@
     "BETTER_AUTH_URL": "https://report-automation.taion16240.workers.dev",
     "BOOTSTRAP_ADMIN_EMAIL": "Taion@razibmarketing.net",
     "TEAM_TIMEZONE": "Asia/Dhaka"
+  },
+  "observability": {
+    "enabled": false,
+    "head_sampling_rate": 1,
+    "redact_query_string": false,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
   }
 }

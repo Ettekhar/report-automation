@@ -10,36 +10,80 @@ function LoginContent() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const searchParams = useSearchParams();
 
-  // When we land back on /login after a failed OAuth, clear loading and show error
+  // =========================================================================
+  // STEP 1: Check URL search parameters for OAuth callback errors
+  // Whenever Google or Better-Auth redirects back to /login with an error,
+  // this effect logs all query parameters to the browser console.
+  // =========================================================================
   useEffect(() => {
     setLoading(false);
     const error = searchParams.get("error");
+    const errorDescription = searchParams.get("error_description");
+    const allParams = Object.fromEntries(searchParams.entries());
+
+    if (error || Object.keys(allParams).length > 0) {
+      console.log("[AUTH CLIENT - URL PARAMS RECEIVED]", {
+        error,
+        errorDescription,
+        allParams,
+        fullUrl: typeof window !== "undefined" ? window.location.href : "",
+      });
+    }
+
     if (error === "oauth_callback_error" || error === "oauth_error") {
-      setErrorMsg("Google sign in failed. Please check that the Google OAuth credentials are correctly configured.");
+      console.error(
+        "[AUTH CLIENT ERROR] Google OAuth callback failed. Potential reasons:\n" +
+        "1. Redirect URI mismatch in Google Cloud Console (must match /api/auth/callback/google)\n" +
+        "2. Missing GOOGLE_CLIENT_SECRET or GOOGLE_CLIENT_ID\n" +
+        "3. User not in 'Test Users' list in Google OAuth Consent Screen\n" +
+        "4. Database tables not migrated on D1/SQLite"
+      );
+      setErrorMsg(
+        errorDescription
+          ? `Google sign in failed: ${errorDescription}`
+          : "Google sign in failed. Please check that the Google OAuth credentials are correctly configured in Google Cloud Console and environment variables."
+      );
     } else if (error) {
-      setErrorMsg(`Sign in error: ${error}. Please try again.`);
+      console.error(`[AUTH CLIENT ERROR] Sign in error code: ${error}`, errorDescription);
+      setErrorMsg(`Sign in error: ${error}${errorDescription ? ` (${errorDescription})` : ""}. Please try again.`);
     }
   }, [searchParams]);
 
+  // =========================================================================
+  // STEP 2: Triggered when user clicks "Continue with Google"
+  // =========================================================================
   async function handleGoogleLogin() {
     setLoading(true);
     setErrorMsg(null);
 
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    console.log("[AUTH CLIENT - STEP 1: INITIATING GOOGLE LOGIN]", {
+      origin,
+      provider: "google",
+      callbackURL: "/",
+      errorCallbackURL: "/login?error=oauth_error",
+      timestamp: new Date().toISOString(),
+    });
+
     // Safety timeout — if the server hangs, unblock the button after 15 s
     const timer = setTimeout(() => {
       setLoading(false);
+      console.warn("[AUTH CLIENT - TIMEOUT] Google login request timed out after 15 seconds.");
       setErrorMsg("Connection timed out. The server may still be starting up — please try again in a moment.");
     }, 15000);
 
     try {
-      await signIn.social({
+      console.log("[AUTH CLIENT - STEP 2: CALLING signIn.social]");
+      const result = await signIn.social({
         provider: "google",
         callbackURL: "/",
         errorCallbackURL: "/login?error=oauth_error",
       });
       clearTimeout(timer);
+      console.log("[AUTH CLIENT - STEP 3: signIn.social RESPONSE]", result);
     } catch (err: unknown) {
       clearTimeout(timer);
+      console.error("[AUTH CLIENT - STEP 3: signIn.social EXCEPTION]", err);
       setErrorMsg((err as Error)?.message || "Google sign in failed. Please try again.");
       setLoading(false);
     }

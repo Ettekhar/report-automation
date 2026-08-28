@@ -37,6 +37,16 @@ export function createAuth(db: D1Database, authEnv: AuthEnv = {}) {
   const baseURL = authEnv.betterAuthUrl ?? process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
   const bootstrapEmail = authEnv.bootstrapAdminEmail ?? process.env.BOOTSTRAP_ADMIN_EMAIL;
 
+  console.log("[AUTH INIT - CONFIG CHECK]", {
+    baseURL,
+    hasGoogleClientId: !!clientId,
+    googleClientIdSnippet: clientId ? `${clientId.slice(0, 12)}...${clientId.slice(-10)}` : "MISSING",
+    hasGoogleClientSecret: !!clientSecret,
+    googleClientSecretLength: clientSecret ? clientSecret.length : 0,
+    hasBetterAuthSecret: !!secret,
+    bootstrapEmail: bootstrapEmail || "NOT SET",
+  });
+
   return betterAuth({
     database: drizzleAdapter(drizzleDB, {
       provider: "sqlite",
@@ -73,18 +83,29 @@ export function createAuth(db: D1Database, authEnv: AuthEnv = {}) {
       user: {
         create: {
           after: async (user) => {
-            const isBootstrapEmail =
-              bootstrapEmail &&
-              user.email?.toLowerCase() === bootstrapEmail.toLowerCase();
+            console.log("[AUTH HOOK - USER CREATED]", {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+            });
 
-            const userCount = await drizzleDB.select().from(schema.users);
-            const isFirstUser = userCount.length <= 1;
+            try {
+              const isBootstrapEmail =
+                bootstrapEmail &&
+                user.email?.toLowerCase() === bootstrapEmail.toLowerCase();
 
-            if (isBootstrapEmail || isFirstUser) {
-              await drizzleDB
-                .update(schema.users)
-                .set({ role: "admin" })
-                .where(eq(schema.users.id, user.id));
+              const userCount = await drizzleDB.select().from(schema.users);
+              const isFirstUser = userCount.length <= 1;
+
+              if (isBootstrapEmail || isFirstUser) {
+                console.log(`[AUTH HOOK - ASSIGNING ADMIN ROLE] User ${user.email} promoted to admin.`);
+                await drizzleDB
+                  .update(schema.users)
+                  .set({ role: "admin" })
+                  .where(eq(schema.users.id, user.id));
+              }
+            } catch (hookErr) {
+              console.error("[AUTH HOOK ERROR] Failed inside user.create.after hook:", hookErr);
             }
           },
         },
