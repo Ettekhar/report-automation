@@ -12,7 +12,7 @@
     {
       "binding": "DB",
       "database_name": "daily-report-db",
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+      "database_id": "aec62ee4-b689-48ad-8c9d-899579749b57"
     }
   ]
 }
