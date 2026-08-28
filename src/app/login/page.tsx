@@ -24,13 +24,22 @@ function LoginContent() {
   async function handleGoogleLogin() {
     setLoading(true);
     setErrorMsg(null);
+
+    // Safety timeout — if the server hangs, unblock the button after 15 s
+    const timer = setTimeout(() => {
+      setLoading(false);
+      setErrorMsg("Connection timed out. The server may still be starting up — please try again in a moment.");
+    }, 15000);
+
     try {
       await signIn.social({
         provider: "google",
         callbackURL: "/",
         errorCallbackURL: "/login?error=oauth_error",
       });
+      clearTimeout(timer);
     } catch (err: unknown) {
+      clearTimeout(timer);
       setErrorMsg((err as Error)?.message || "Google sign in failed. Please try again.");
       setLoading(false);
     }
