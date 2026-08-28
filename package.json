@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build && opennextjs-cloudflare build --skipNextBuild",
+    "cf:deploy": "next build && opennextjs-cloudflare build --skipNextBuild && opennextjs-cloudflare deploy",
     "start": "next start",
     "preview": "opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare deploy",
