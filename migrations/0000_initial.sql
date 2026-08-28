@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS account (
   scope TEXT,
   password TEXT,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  issuer TEXT
 );
 
 -- Verifications table (Better Auth)
