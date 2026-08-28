@@ -112,11 +112,12 @@ export function generateReport(input: ReportInput): string {
   lines.push(cfg.header + " \n");
   lines.push(`${cfg.labels.reportDate}: ${formatDateLabel(input.date)}`);
 
-  if (input.totalAssigned != null) {
-    lines.push(
-      `${cfg.labels.totalAssigned} = ${input.totalAssigned}`
-    );
-  }
+  const totalAssigned =
+    input.totalAssigned != null
+      ? input.totalAssigned
+      : input.tasksDone + input.inReview + input.inProgress;
+
+  lines.push(`${cfg.labels.totalAssigned} = ${totalAssigned}`);
 
   // ── Tasks Done ─────────────────────────────────────────────────────────
   lines.push(`${cfg.labels.tasksDone} = ${pad(input.tasksDone, z)}`);

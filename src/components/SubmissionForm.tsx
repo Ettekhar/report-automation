@@ -96,12 +96,15 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
     );
     const doneLinksStr = [DEFAULT_DONE_LINK, ...detectedDoneLinks].join("\n");
     const totalDoneCount = 1 + detectedDoneLinks.length;
+    const finalDoneCount = Math.max(counts.done, totalDoneCount);
+    const computedTotalAssigned = finalDoneCount + counts.inReview + counts.inProgress;
 
     setFields((f) => ({
       ...f,
       inReview: counts.inReview,
       inProgress: counts.inProgress,
-      tasksDone: Math.max(counts.done, totalDoneCount),
+      tasksDone: finalDoneCount,
+      totalAssigned: computedTotalAssigned,
       overdueDependencies: counts.overdueDependencies,
       overdueTasks: counts.overdue,
       tomorrowCount: counts.inProgress,
@@ -127,13 +130,21 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
       .map((u) => u.trim())
       .filter(Boolean);
 
+    const doneCount = Number(fields.tasksDone);
+    const reviewCount = Number(fields.inReview);
+    const progressCount = Number(fields.inProgress);
+    const totalAssignedVal =
+      fields.totalAssigned !== ""
+        ? Number(fields.totalAssigned)
+        : doneCount + reviewCount + progressCount;
+
     return {
       date: reportDate,
-      totalAssigned: fields.totalAssigned !== "" ? Number(fields.totalAssigned) : null,
-      tasksDone: Number(fields.tasksDone),
+      totalAssigned: totalAssignedVal,
+      tasksDone: doneCount,
       tasksDoneLinks: doneLinks,
-      inReview: Number(fields.inReview),
-      inProgress: Number(fields.inProgress),
+      inReview: reviewCount,
+      inProgress: progressCount,
       overdueTasks: Number(fields.overdueTasks),
       overdueDependencies: Number(fields.overdueDependencies),
       overdueDepNote: fields.overdueDepNote || null,
@@ -355,7 +366,7 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
           <div className="card-sm" style={{ marginBottom: "1rem" }}>
             <p className="label" style={{ marginBottom: "0.75rem" }}>ClickUp fields *</p>
             <div className="grid-form">
-              {numField("totalAssigned", "Total Assigned Tasks")}
+              {numField("totalAssigned", "Total Assigned (Done + Review + Progress)")}
               {numField("tasksDone", "Tasks Done")}
               {numField("tomorrowCount", "Tomorrow's Plan Count")}
               {textField("overdueDepNote", "Overdue-dep note", "( all are developments task )")}
