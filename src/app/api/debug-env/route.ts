@@ -5,7 +5,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 export async function GET() {
   try {
     const ctx = await getCloudflareContext({ async: true });
-    const env = ctx.env as Record<string, unknown>;
+    const env = ctx.env as unknown as Record<string, unknown>;
     return Response.json({
       hasGoogleClientId: !!env["GOOGLE_CLIENT_ID"],
       hasGoogleClientSecret: !!env["GOOGLE_CLIENT_SECRET"],
