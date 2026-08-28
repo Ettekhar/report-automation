@@ -1,11 +1,25 @@
 "use client";
 
 import { signIn } from "@/lib/auth-client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
-export default function LoginPage() {
+function LoginContent() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+
+  // When we land back on /login after a failed OAuth, clear loading and show error
+  useEffect(() => {
+    setLoading(false);
+    const error = searchParams.get("error");
+    if (error === "oauth_callback_error" || error === "oauth_error") {
+      setErrorMsg("Google sign in failed. Please check that the Google OAuth credentials are correctly configured.");
+    } else if (error) {
+      setErrorMsg(`Sign in error: ${error}. Please try again.`);
+    }
+  }, [searchParams]);
 
   async function handleGoogleLogin() {
     setLoading(true);
@@ -14,6 +28,7 @@ export default function LoginPage() {
       await signIn.social({
         provider: "google",
         callbackURL: "/",
+        errorCallbackURL: "/login?error=oauth_error",
       });
     } catch (err: unknown) {
       setErrorMsg((err as Error)?.message || "Google sign in failed. Please try again.");
@@ -62,7 +77,10 @@ export default function LoginPage() {
         </p>
 
         {errorMsg && (
-          <div className="alert alert-error" style={{ marginBottom: "1.25rem", textAlign: "left", fontSize: "0.8rem" }}>
+          <div
+            className="alert alert-error"
+            style={{ marginBottom: "1.25rem", textAlign: "left", fontSize: "0.8rem" }}
+          >
             {errorMsg}
           </div>
         )}
@@ -93,5 +111,13 @@ export default function LoginPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
   );
 }
