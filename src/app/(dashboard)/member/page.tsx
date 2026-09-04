@@ -148,7 +148,7 @@ export default async function MemberPage() {
         </div>
         <SubmissionForm
           reportDate={today}
-          isAdmin={session.userRole === "admin"}
+          isAdmin={session.userRole === "admin" || session.userRole === "superadmin"}
           existingSubmission={existing ? {
             id: existing.id,
             rawInput: existing.rawInput,

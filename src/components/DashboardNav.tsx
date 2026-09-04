@@ -12,12 +12,13 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/member",           label: "My Dashboard",   icon: "🏠", roles: ["member", "admin", "reviewer"] },
-  { href: "/reviewer",         label: "All Reports",    icon: "👁️",  roles: ["reviewer", "admin"] },
-  { href: "/admin",            label: "Admin View",     icon: "📊", roles: ["admin"] },
-  { href: "/admin/schedule",   label: "Schedule",       icon: "📅", roles: ["admin"] },
-  { href: "/admin/users",      label: "Users",          icon: "👥", roles: ["admin"] },
-  { href: "/admin/export",     label: "Export Dataset", icon: "📦", roles: ["admin"] },
+  { href: "/member",           label: "My Dashboard",   icon: "🏠", roles: ["member", "admin", "superadmin", "reviewer"] },
+  { href: "/reviewer",         label: "All Reports",    icon: "👁️",  roles: ["reviewer", "admin", "superadmin"] },
+  { href: "/admin",            label: "Admin View",     icon: "📊", roles: ["admin", "superadmin"] },
+  { href: "/admin/schedule",   label: "Schedule",       icon: "📅", roles: ["admin", "superadmin"] },
+  { href: "/admin/users",      label: "Users",          icon: "👥", roles: ["admin", "superadmin"] },
+  { href: "/admin/departments",label: "Departments",    icon: "🏢", roles: ["admin", "superadmin"] },
+  { href: "/admin/export",     label: "Export Dataset", icon: "📦", roles: ["admin", "superadmin"] },
 ];
 
 export default function DashboardNav({
@@ -48,7 +49,14 @@ export default function DashboardNav({
             </div>
             <div>
               <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "#f8fafc" }}>Daily Report</div>
-              <div style={{ fontSize: "0.7rem", color: "#475569", textTransform: "capitalize" }}>{role}</div>
+              <div style={{
+                fontSize: "0.7rem",
+                fontWeight: role === "superadmin" ? 600 : 500,
+                color: role === "superadmin" ? "#c084fc" : "#94a3b8",
+                textTransform: "capitalize",
+              }}>
+                {role === "superadmin" ? "⚡ Superadmin" : role}
+              </div>
             </div>
           </div>
         </div>

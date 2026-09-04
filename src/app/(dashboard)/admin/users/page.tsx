@@ -13,8 +13,13 @@ export default async function AdminUsersPage() {
   const { db } = await getRequestDeps();
 
   const allUsers = await db.query.users.findMany({
-    columns: { id: true, name: true, email: true, role: true, createdAt: true },
+    columns: { id: true, name: true, email: true, role: true, departmentId: true, createdAt: true },
+    with: { department: { columns: { id: true, name: true } } },
     orderBy: (u, { asc }) => [asc(u.name)],
+  });
+
+  const allDepts = await db.query.departments.findMany({
+    orderBy: (d, { asc }) => [asc(d.name)],
   });
 
   const allLinks = await db.query.teamTaskLinks.findMany({
@@ -26,14 +31,16 @@ export default async function AdminUsersPage() {
       <div style={{ marginBottom: "1.75rem" }}>
         <h1 style={{ fontSize: "1.4rem", marginBottom: 4 }}>User & Team Link Settings</h1>
         <p style={{ color: "#64748b", fontSize: "0.875rem", margin: 0 }}>
-          Manage user permissions, assign roles (Admin / Member / Reviewer), and maintain the team dev task list.
+          Manage user permissions, assign roles, organize team members by department, and maintain dev task links.
         </p>
       </div>
 
       <UserManager
         initialUsers={allUsers}
         initialLinks={allLinks}
+        departments={allDepts}
         currentUserId={session.userId}
+        currentUserRole={session.userRole}
       />
     </div>
   );

@@ -9,7 +9,22 @@ import { relations, sql } from "drizzle-orm";
 // ---------------------------------------------------------------------------
 // ROLES
 // ---------------------------------------------------------------------------
-export type Role = "admin" | "member" | "reviewer";
+export type Role = "superadmin" | "admin" | "member" | "reviewer";
+
+// ---------------------------------------------------------------------------
+// DEPARTMENTS
+// ---------------------------------------------------------------------------
+export const departments = sqliteTable("departments", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
 
 // ---------------------------------------------------------------------------
 // USERS
@@ -23,6 +38,9 @@ export const users = sqliteTable("users", {
     .default(false),
   image: text("image"),
   role: text("role").$type<Role>().notNull().default("member"),
+  departmentId: text("department_id").references(() => departments.id, {
+    onDelete: "set null",
+  }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),
@@ -193,11 +211,19 @@ export const submissionEdits = sqliteTable("submission_edits", {
 // ---------------------------------------------------------------------------
 // RELATIONS
 // ---------------------------------------------------------------------------
-export const usersRelations = relations(users, ({ many }) => ({
+export const departmentsRelations = relations(departments, ({ many }) => ({
+  users: many(users),
+}));
+
+export const usersRelations = relations(users, ({ one, many }) => ({
   sessions: many(sessions),
   accounts: many(accounts),
   scheduleAssignments: many(scheduleAssignments),
   submissions: many(submissions),
+  department: one(departments, {
+    fields: [users.departmentId],
+    references: [departments.id],
+  }),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({

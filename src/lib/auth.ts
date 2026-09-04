@@ -98,10 +98,10 @@ export function createAuth(db: D1Database, authEnv: AuthEnv = {}) {
               const isFirstUser = userCount.length <= 1;
 
               if (isBootstrapEmail || isFirstUser) {
-                console.log(`[AUTH HOOK - ASSIGNING ADMIN ROLE] User ${user.email} promoted to admin.`);
+                console.log(`[AUTH HOOK - ASSIGNING SUPERADMIN ROLE] User ${user.email} promoted to superadmin.`);
                 await drizzleDB
                   .update(schema.users)
-                  .set({ role: "admin" })
+                  .set({ role: "superadmin" })
                   .where(eq(schema.users.id, user.id));
               }
             } catch (hookErr) {

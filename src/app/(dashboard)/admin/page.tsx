@@ -54,7 +54,7 @@ export default async function AdminPage() {
   const totalProgress = todaySubmissions.reduce((s, r) => s + r.inProgress, 0);
   const totalOverdue = todaySubmissions.reduce((s, r) => s + r.overdueTasks, 0);
 
-  const members = allUsers.filter((u) => u.role !== "admin");
+  const members = allUsers.filter((u) => u.role !== "admin" && u.role !== "superadmin");
   const assignedCount = members.filter((u) => assignedTodayIds.has(u.id)).length;
   const submittedCount = members.filter((u) => submittedTodayIds.has(u.id)).length;
 

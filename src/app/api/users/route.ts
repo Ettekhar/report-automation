@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession, getRequestDeps, withErrorHandling } from "@/lib/api-helpers";
 import { requirePermission } from "@/lib/permissions";
-import { users } from "@/db/schema";
+import { users, departments } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { Role } from "@/lib/permissions";
 
@@ -17,7 +17,19 @@ export async function GET() {
     const { db } = await getRequestDeps();
 
     const rows = await db.query.users.findMany({
-      columns: { id: true, name: true, email: true, role: true, createdAt: true },
+      columns: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        departmentId: true,
+        createdAt: true,
+      },
+      with: {
+        department: {
+          columns: { id: true, name: true },
+        },
+      },
       orderBy: (u, { asc }) => [asc(u.name)],
     });
 
@@ -27,12 +39,13 @@ export async function GET() {
 
 interface PatchUserBody {
   userId: string;
-  role: Role;
+  role?: Role;
+  departmentId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
-// PATCH /api/users — update a user's role (admin only)
-// Body: { userId, role }
+// PATCH /api/users — update a user's role or department
+// Body: { userId, role?, departmentId? }
 // ---------------------------------------------------------------------------
 export async function PATCH(req: Request) {
   return withErrorHandling(async () => {
@@ -42,17 +55,82 @@ export async function PATCH(req: Request) {
     const body = (await req.json()) as PatchUserBody;
     const { db } = await getRequestDeps();
 
-    // Prevent self-demotion
-    if (body.userId === session.userId && body.role !== "admin") {
-      return NextResponse.json(
-        { error: "Cannot change your own role" },
-        { status: 400 }
-      );
+    if (!body.userId) {
+      return NextResponse.json({ error: "userId is required" }, { status: 400 });
+    }
+
+    const targetUser = await db.query.users.findFirst({
+      where: eq(users.id, body.userId),
+    });
+
+    if (!targetUser) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    const updates: Partial<{
+      role: Role;
+      departmentId: string | null;
+      updatedAt: Date;
+    }> = {
+      updatedAt: new Date(),
+    };
+
+    // Role changes
+    if (body.role && body.role !== targetUser.role) {
+      // Prevent self-demotion
+      if (body.userId === session.userId) {
+        return NextResponse.json(
+          { error: "Cannot change your own role" },
+          { status: 400 }
+        );
+      }
+
+      // Only superadmin can modify an existing admin or superadmin
+      if (
+        (targetUser.role === "admin" || targetUser.role === "superadmin") &&
+        session.userRole !== "superadmin"
+      ) {
+        return NextResponse.json(
+          { error: "Only superadmin can modify an admin's role" },
+          { status: 403 }
+        );
+      }
+
+      // Only superadmin can assign admin or superadmin roles
+      if (
+        (body.role === "admin" || body.role === "superadmin") &&
+        session.userRole !== "superadmin"
+      ) {
+        return NextResponse.json(
+          { error: "Only superadmin can assign admin or superadmin roles" },
+          { status: 403 }
+        );
+      }
+
+      updates.role = body.role;
+    }
+
+    // Department changes
+    if (body.departmentId !== undefined) {
+      if (body.departmentId) {
+        const dept = await db.query.departments.findFirst({
+          where: eq(departments.id, body.departmentId),
+        });
+        if (!dept) {
+          return NextResponse.json(
+            { error: "Department not found" },
+            { status: 404 }
+          );
+        }
+        updates.departmentId = body.departmentId;
+      } else {
+        updates.departmentId = null;
+      }
     }
 
     await db
       .update(users)
-      .set({ role: body.role, updatedAt: new Date() })
+      .set(updates)
       .where(eq(users.id, body.userId));
 
     return NextResponse.json({ ok: true });
@@ -60,7 +138,7 @@ export async function PATCH(req: Request) {
 }
 
 // ---------------------------------------------------------------------------
-// DELETE /api/users?userId=... — remove a user (admin only)
+// DELETE /api/users?userId=... — remove a user (admin / superadmin)
 // ---------------------------------------------------------------------------
 export async function DELETE(req: Request) {
   return withErrorHandling(async () => {
@@ -81,6 +159,26 @@ export async function DELETE(req: Request) {
     }
 
     const { db } = await getRequestDeps();
+
+    const targetUser = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+    });
+
+    if (!targetUser) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    // Normal admin cannot delete an admin or superadmin
+    if (
+      (targetUser.role === "admin" || targetUser.role === "superadmin") &&
+      session.userRole !== "superadmin"
+    ) {
+      return NextResponse.json(
+        { error: "Only superadmin can delete an admin" },
+        { status: 403 }
+      );
+    }
+
     await db.delete(users).where(eq(users.id, userId));
     return NextResponse.json({ ok: true });
   });

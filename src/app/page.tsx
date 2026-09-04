@@ -12,6 +12,7 @@ export default async function RootPage() {
   if (!session) redirect("/login");
 
   switch (session.userRole) {
+    case "superadmin":
     case "admin":    redirect("/admin");
     case "reviewer": redirect("/reviewer");
     default:         redirect("/member");

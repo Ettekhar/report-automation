@@ -169,6 +169,7 @@ a:hover { color: var(--color-brand-200); text-decoration: underline; }
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
+.badge-superadmin { background: rgba(168,85,247,0.22); color: #c084fc; border: 1px solid rgba(168,85,247,0.35); }
 .badge-admin   { background: rgba(99,102,241,0.2); color: var(--color-brand-400); }
 .badge-member  { background: rgba(96,165,250,0.15); color: var(--color-info); }
 .badge-reviewer{ background: rgba(251,191,36,0.15); color: var(--color-warning); }

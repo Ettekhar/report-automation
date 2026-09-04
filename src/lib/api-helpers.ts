@@ -92,13 +92,27 @@ export async function getSession(): Promise<RequestSession | null> {
     const { auth, db } = await getRequestDeps();
     const hdrs = await headers();
 
+    const authEnv = await getAuthEnv();
+
     // 1. Better Auth session API
     try {
       const session = await auth.api.getSession({ headers: hdrs });
       if (session?.user) {
+        let role = ((session.user as { role?: string }).role ?? "member") as Role;
+        if (
+          authEnv.bootstrapAdminEmail &&
+          session.user.email.toLowerCase() === authEnv.bootstrapAdminEmail.toLowerCase() &&
+          role !== "superadmin"
+        ) {
+          role = "superadmin";
+          await db
+            .update(users)
+            .set({ role: "superadmin" })
+            .where(eq(users.id, session.user.id));
+        }
         return {
           userId: session.user.id,
-          userRole: ((session.user as { role?: string }).role ?? "member") as Role,
+          userRole: role,
           userEmail: session.user.email,
           userName: session.user.name ?? "",
         };
@@ -120,9 +134,21 @@ export async function getSession(): Promise<RequestSession | null> {
         });
 
         if (user) {
+          let role = (user.role || "member") as Role;
+          if (
+            authEnv.bootstrapAdminEmail &&
+            user.email.toLowerCase() === authEnv.bootstrapAdminEmail.toLowerCase() &&
+            role !== "superadmin"
+          ) {
+            role = "superadmin";
+            await db
+              .update(users)
+              .set({ role: "superadmin" })
+              .where(eq(users.id, user.id));
+          }
           return {
             userId: user.id,
-            userRole: (user.role || "member") as Role,
+            userRole: role,
             userEmail: user.email,
             userName: user.name,
           };
