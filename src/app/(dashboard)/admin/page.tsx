@@ -1,11 +1,12 @@
 import { getSession, getRequestDeps } from "@/lib/api-helpers";
 import { redirect } from "next/navigation";
 import { can } from "@/lib/permissions";
-import { submissions, scheduleAssignments } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { submissions, scheduleAssignments, users, departments, teamTaskLinks } from "@/db/schema";
+import { eq, desc, inArray, isNull, or } from "drizzle-orm";
 import { todayInTeamTZ } from "@/lib/timezone";
 import AdminSubmissionCard from "@/components/AdminSubmissionCard";
 import Link from "next/link";
+import type { Role } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,42 +18,89 @@ export default async function AdminPage() {
   const { db } = await getRequestDeps();
   const today = todayInTeamTZ();
 
-  // All users
-  const allUsers = await db.query.users.findMany({
-    columns: { id: true, name: true, email: true, role: true },
+  const isSuperadmin = session.userRole === "superadmin";
+
+  // Fetch department details if normal leader
+  let deptName: string | null = null;
+  if (session.userDepartmentId) {
+    const dept = await db.query.departments.findFirst({
+      where: eq(departments.id, session.userDepartmentId),
+    });
+    deptName = dept?.name ?? null;
+  }
+
+  // Users query: scoped by department if not superadmin
+  const userCondition = !isSuperadmin
+    ? session.userDepartmentId
+      ? eq(users.departmentId, session.userDepartmentId)
+      : isNull(users.departmentId)
+    : undefined;
+
+  const rawUsers = await db.query.users.findMany({
+    where: userCondition,
+    columns: { id: true, name: true, email: true, role: true, departmentId: true },
     orderBy: (u, { asc }) => [asc(u.name)],
   });
 
-  // Today's assignments
-  const todayAssignments = await db.query.scheduleAssignments.findMany({
-    where: eq(scheduleAssignments.assignedDate, today),
+  // Invisibility: mask superadmin as admin if viewer is not superadmin
+  const allUsers = rawUsers.map((u) => {
+    if (!isSuperadmin && u.role === "superadmin") {
+      return { ...u, role: "admin" as Role };
+    }
+    return u;
   });
-  const assignedTodayIds = new Set(todayAssignments.map((a) => a.userId));
+
+  const deptUserIds = allUsers.map((u) => u.id);
+
+  // Today's assignments
+  const todayAssignments = deptUserIds.length > 0
+    ? await db.query.scheduleAssignments.findMany({
+        where: !isSuperadmin
+          ? inArray(scheduleAssignments.userId, deptUserIds)
+          : eq(scheduleAssignments.assignedDate, today),
+      })
+    : [];
+  const assignedTodayIds = new Set(
+    todayAssignments.filter((a) => a.assignedDate === today).map((a) => a.userId)
+  );
 
   // Today's submissions
-  const todaySubmissions = await db.query.submissions.findMany({
-    where: eq(submissions.reportDate, today),
-    with: { user: { columns: { name: true, email: true } } },
-  });
-  const submittedTodayIds = new Set(todaySubmissions.map((s) => s.userId));
+  const todaySubmissions = deptUserIds.length > 0
+    ? await db.query.submissions.findMany({
+        where: !isSuperadmin
+          ? inArray(submissions.userId, deptUserIds)
+          : eq(submissions.reportDate, today),
+        with: { user: { columns: { name: true, email: true, role: true } } },
+      })
+    : [];
+  const actualTodaySubs = todaySubmissions.filter((s) => s.reportDate === today);
+  const submittedTodayIds = new Set(actualTodaySubs.map((s) => s.userId));
 
-  // Recent submissions (last 7 days, all users)
-  const recentSubmissions = await db.query.submissions.findMany({
-    with: { user: { columns: { name: true, email: true } } },
-    orderBy: [desc(submissions.createdAt)],
-    limit: 50,
-  });
+  // Recent submissions
+  const recentSubmissions = deptUserIds.length > 0
+    ? await db.query.submissions.findMany({
+        where: !isSuperadmin ? inArray(submissions.userId, deptUserIds) : undefined,
+        with: { user: { columns: { name: true, email: true, role: true } } },
+        orderBy: [desc(submissions.createdAt)],
+        limit: 50,
+      })
+    : [];
 
-  // Team task links
+  // Team task links: department-scoped
+  const linkCondition = session.userDepartmentId
+    ? or(eq(teamTaskLinks.departmentId, session.userDepartmentId), isNull(teamTaskLinks.departmentId))
+    : isNull(teamTaskLinks.departmentId);
+
   const teamLinks = await db.query.teamTaskLinks.findMany({
+    where: !isSuperadmin ? linkCondition : undefined,
     orderBy: (t, { asc }) => [asc(t.sortOrder)],
   });
 
   // Aggregate stats for today
-  const totalDone = todaySubmissions.reduce((s, r) => s + r.tasksDone, 0);
-  const totalReview = todaySubmissions.reduce((s, r) => s + r.inReview, 0);
-  const totalProgress = todaySubmissions.reduce((s, r) => s + r.inProgress, 0);
-  const totalOverdue = todaySubmissions.reduce((s, r) => s + r.overdueTasks, 0);
+  const totalDone = actualTodaySubs.reduce((s, r) => s + r.tasksDone, 0);
+  const totalReview = actualTodaySubs.reduce((s, r) => s + r.inReview, 0);
+  const totalProgress = actualTodaySubs.reduce((s, r) => s + r.inProgress, 0);
+  const totalOverdue = actualTodaySubs.reduce((s, r) => s + r.overdueTasks, 0);
 
   const members = allUsers.filter((u) => u.role !== "admin" && u.role !== "superadmin");
   const assignedCount = members.filter((u) => assignedTodayIds.has(u.id)).length;
@@ -60,9 +108,12 @@ export default async function AdminPage() {
 
   return (
     <div className="page-container fade-in">
-      <div style={{ marginBottom: "1.75rem" }}>
-        <h1 style={{ fontSize: "1.4rem", marginBottom: 4 }}>Admin Dashboard</h1>
+      <div style={{ marginBottom: "1.5rem" }}>
+        <h1 style={{ fontSize: "1.4rem", marginBottom: 4 }}>
+          {isSuperadmin ? "Superadmin Overview" : deptName ? `${deptName} Leader Dashboard` : "Admin Dashboard"}
+        </h1>
         <p style={{ color: "#64748b", fontSize: "0.875rem", margin: 0 }}>
+          {deptName && <span style={{ color: "#818cf8", fontWeight: 600 }}>{deptName} Department · </span>}
           {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           {" · "}{today}
         </p>

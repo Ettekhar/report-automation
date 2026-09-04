@@ -7,6 +7,7 @@ interface User {
   name: string;
   email: string;
   role: string;
+  departmentId?: string | null;
 }
 
 interface Assignment {
@@ -14,22 +15,42 @@ interface Assignment {
   userId: string;
   assignedDate: string;
   userName: string;
+  departmentId?: string | null;
+}
+
+interface Department {
+  id: string;
+  name: string;
 }
 
 interface Props {
   users: User[];
   initialAssignments: Assignment[];
+  departments?: Department[];
+  isSuperadmin?: boolean;
 }
 
-export default function ScheduleCalendar({ users, initialAssignments }: Props) {
+export default function ScheduleCalendar({
+  users,
+  initialAssignments,
+  departments = [],
+  isSuperadmin = false,
+}: Props) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [assignments, setAssignments] = useState<Assignment[]>(initialAssignments);
+  const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>("all");
 
   // Range selection states: YYYY-MM-DD
   const [rangeStart, setRangeStart] = useState<string | null>(null);
   const [rangeEnd, setRangeEnd] = useState<string | null>(null);
 
-  const [selectedUserId, setSelectedUserId] = useState<string>(users[0]?.id || "");
+  const filteredUsers = isSuperadmin && selectedDeptFilter !== "all"
+    ? (selectedDeptFilter === "unassigned"
+        ? users.filter((u) => !u.departmentId)
+        : users.filter((u) => u.departmentId === selectedDeptFilter))
+    : users;
+
+  const [selectedUserId, setSelectedUserId] = useState<string>(filteredUsers[0]?.id || users[0]?.id || "");
   const [replaceExisting, setReplaceExisting] = useState<boolean>(true);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -58,8 +79,14 @@ export default function ScheduleCalendar({ users, initialAssignments }: Props) {
   const firstDayIndex = new Date(year, month, 1).getDay(); // 0 is Sunday
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  // Mapping assignments by date
-  const assignmentsByDate = assignments.reduce((acc, a) => {
+  // Mapping assignments by date (filtered by department for superadmin if selected)
+  const filteredAssignments = isSuperadmin && selectedDeptFilter !== "all"
+    ? (selectedDeptFilter === "unassigned"
+        ? assignments.filter((a) => !a.departmentId)
+        : assignments.filter((a) => a.departmentId === selectedDeptFilter))
+    : assignments;
+
+  const assignmentsByDate = filteredAssignments.reduce((acc, a) => {
     if (!acc[a.assignedDate]) acc[a.assignedDate] = [];
     acc[a.assignedDate].push(a);
     return acc;
@@ -155,6 +182,7 @@ export default function ScheduleCalendar({ users, initialAssignments }: Props) {
           userId: selectedUserId,
           assignedDate: d,
           userName,
+          departmentId: userObj?.departmentId ?? null,
         }));
         return [...filtered, ...additions];
       });
@@ -303,6 +331,36 @@ export default function ScheduleCalendar({ users, initialAssignments }: Props) {
           </div>
         </div>
 
+        {/* Superadmin Department Switcher */}
+        {isSuperadmin && departments && departments.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <span style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 600 }}>🏢 FILTER BY DEPARTMENT:</span>
+            <select
+              className="select"
+              style={{ width: "auto", fontSize: "0.8rem", padding: "0.3rem 0.6rem" }}
+              value={selectedDeptFilter}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedDeptFilter(val);
+                const nextUsers = val === "all"
+                  ? users
+                  : val === "unassigned"
+                  ? users.filter((u) => !u.departmentId)
+                  : users.filter((u) => u.departmentId === val);
+                if (nextUsers[0]) setSelectedUserId(nextUsers[0].id);
+              }}
+            >
+              <option value="all">All Departments ({users.length} Users)</option>
+              <option value="unassigned">Unassigned ({users.filter((u) => !u.departmentId).length})</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name} ({users.filter((u) => u.departmentId === d.id).length})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {msg && (
           <div className={`alert alert-${msg.type === "success" ? "success" : "error"}`} style={{ marginTop: "1rem" }}>
             {msg.text}
@@ -443,11 +501,18 @@ export default function ScheduleCalendar({ users, initialAssignments }: Props) {
                   value={selectedUserId}
                   onChange={(e) => setSelectedUserId(e.target.value)}
                 >
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.role}) — {u.email}
-                    </option>
-                  ))}
+                  {filteredUsers.length === 0 ? (
+                    <option value="" disabled>No users in this department</option>
+                  ) : (
+                    filteredUsers.map((u) => {
+                      const displayRole = !isSuperadmin && u.role === "superadmin" ? "admin" : u.role;
+                      return (
+                        <option key={u.id} value={u.id}>
+                          {u.name} ({displayRole}) — {u.email}
+                        </option>
+                      );
+                    })
+                  )}
                 </select>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "1rem" }}>

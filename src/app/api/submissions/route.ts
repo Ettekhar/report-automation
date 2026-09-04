@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { requireSession, getRequestDeps, withErrorHandling } from "@/lib/api-helpers";
 import { requirePermission } from "@/lib/permissions";
-import { submissions, teamTaskLinks } from "@/db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { submissions, teamTaskLinks, users } from "@/db/schema";
+import { eq, desc, and, or, isNull, inArray } from "drizzle-orm";
 import { generateReport, type ReportInput } from "@/lib/report-formatter";
-
-
+import type { Role } from "@/lib/permissions";
 
 // ---------------------------------------------------------------------------
 // GET /api/submissions — list submissions
 // - member: only their own
-// - reviewer/admin: all (optionally filter by ?date=YYYY-MM-DD or ?userId=...)
+// - reviewer/admin: only their department's members
+// - superadmin: all (optionally filter by ?departmentId=...)
 // ---------------------------------------------------------------------------
 export async function GET(req: Request) {
   return withErrorHandling(async () => {
@@ -19,6 +19,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const dateFilter = url.searchParams.get("date");
     const userFilter = url.searchParams.get("userId");
+    const deptFilter = url.searchParams.get("departmentId");
 
     let rows;
 
@@ -29,26 +30,67 @@ export async function GET(req: Request) {
 
       rows = await db.query.submissions.findMany({
         where: and(...conditions),
-        with: { user: { columns: { name: true, email: true } } },
+        with: { user: { columns: { name: true, email: true, role: true } } },
         orderBy: [desc(submissions.createdAt)],
         limit: 50,
       });
     } else {
-      // Reviewer / admin can see all
       requirePermission(session.userRole, "view:all");
       const conditions = [];
       if (dateFilter) conditions.push(eq(submissions.reportDate, dateFilter));
       if (userFilter) conditions.push(eq(submissions.userId, userFilter));
 
+      if (session.userRole === "superadmin") {
+        // Superadmin: can view all or filter by department
+        if (deptFilter && deptFilter !== "all") {
+          const deptUsers = await db.query.users.findMany({
+            where: deptFilter === "unassigned" ? isNull(users.departmentId) : eq(users.departmentId, deptFilter),
+            columns: { id: true },
+          });
+          const userIds = deptUsers.map((u) => u.id);
+          if (userIds.length === 0) return NextResponse.json([]);
+          conditions.push(inArray(submissions.userId, userIds));
+        }
+      } else {
+        // Normal admin (department leader) & reviewer: only see their department's submissions
+        const deptUsers = session.userDepartmentId
+          ? await db.query.users.findMany({
+              where: eq(users.departmentId, session.userDepartmentId),
+              columns: { id: true },
+            })
+          : await db.query.users.findMany({
+              where: eq(users.id, session.userId),
+              columns: { id: true },
+            });
+
+        const userIds = deptUsers.map((u) => u.id);
+        if (userIds.length === 0) return NextResponse.json([]);
+        conditions.push(inArray(submissions.userId, userIds));
+      }
+
       rows = await db.query.submissions.findMany({
         where: conditions.length ? and(...conditions) : undefined,
-        with: { user: { columns: { name: true, email: true } } },
+        with: { user: { columns: { name: true, email: true, role: true } } },
         orderBy: [desc(submissions.createdAt)],
         limit: 200,
       });
     }
 
-    return NextResponse.json(rows);
+    // Mask superadmin role if requester is not superadmin
+    const sanitizedRows = rows.map((s) => {
+      if (session.userRole !== "superadmin" && s.user && (s.user as { role?: string }).role === "superadmin") {
+        return {
+          ...s,
+          user: {
+            ...s.user,
+            role: "admin" as Role,
+          },
+        };
+      }
+      return s;
+    });
+
+    return NextResponse.json(sanitizedRows);
   });
 }
 
@@ -85,8 +127,13 @@ export async function POST(req: Request) {
     const body = (await req.json()) as PostSubmissionBody;
     const { db } = await getRequestDeps();
 
-    // Fetch team task links for report generation
+    // Fetch department task links (or global links) for report generation
+    const linkConditions = session.userDepartmentId
+      ? or(eq(teamTaskLinks.departmentId, session.userDepartmentId), isNull(teamTaskLinks.departmentId))
+      : isNull(teamTaskLinks.departmentId);
+
     const links = await db.query.teamTaskLinks.findMany({
+      where: linkConditions,
       orderBy: (t, { asc }) => [asc(t.sortOrder)],
     });
     const teamLinks = links.map((l) => l.url);

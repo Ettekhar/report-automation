@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 export interface RequestSession {
   userId: string;
   userRole: Role;
+  userDepartmentId: string | null;
   userEmail: string;
   userName: string;
 }
@@ -110,9 +111,15 @@ export async function getSession(): Promise<RequestSession | null> {
             .set({ role: "superadmin" })
             .where(eq(users.id, session.user.id));
         }
+        const userRecord = await db.query.users.findFirst({
+          where: eq(users.id, session.user.id),
+          columns: { departmentId: true },
+        });
+
         return {
           userId: session.user.id,
           userRole: role,
+          userDepartmentId: userRecord?.departmentId ?? null,
           userEmail: session.user.email,
           userName: session.user.name ?? "",
         };
@@ -149,6 +156,7 @@ export async function getSession(): Promise<RequestSession | null> {
           return {
             userId: user.id,
             userRole: role,
+            userDepartmentId: user.departmentId ?? null,
             userEmail: user.email,
             userName: user.name,
           };

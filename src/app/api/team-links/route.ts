@@ -2,16 +2,31 @@ import { NextResponse } from "next/server";
 import { requireSession, getRequestDeps, withErrorHandling } from "@/lib/api-helpers";
 import { requirePermission } from "@/lib/permissions";
 import { teamTaskLinks } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, or, isNull } from "drizzle-orm";
 
-
-
-// GET /api/team-links — public to all authenticated users
-export async function GET() {
+// GET /api/team-links — return department-specific task links
+export async function GET(req: Request) {
   return withErrorHandling(async () => {
-    await requireSession();
+    const session = await requireSession();
     const { db } = await getRequestDeps();
+    const url = new URL(req.url);
+    const deptParam = url.searchParams.get("departmentId");
+
+    let whereCondition = undefined;
+
+    if (session.userRole === "superadmin") {
+      if (deptParam && deptParam !== "all") {
+        whereCondition = deptParam === "global" ? isNull(teamTaskLinks.departmentId) : eq(teamTaskLinks.departmentId, deptParam);
+      }
+    } else {
+      // Normal admin/member: their department's links or global links
+      whereCondition = session.userDepartmentId
+        ? or(eq(teamTaskLinks.departmentId, session.userDepartmentId), isNull(teamTaskLinks.departmentId))
+        : isNull(teamTaskLinks.departmentId);
+    }
+
     const links = await db.query.teamTaskLinks.findMany({
+      where: whereCondition,
       orderBy: (t, { asc }) => [asc(t.sortOrder)],
     });
     return NextResponse.json(links);
@@ -21,9 +36,10 @@ export async function GET() {
 interface PostTeamLinksBody {
   url?: string;
   urls?: string[];
+  departmentId?: string | null;
 }
 
-// POST /api/team-links — admin only, body: { url } or { urls: string[] }
+// POST /api/team-links — leader or superadmin adds links
 export async function POST(req: Request) {
   return withErrorHandling(async () => {
     const session = await requireSession();
@@ -31,6 +47,11 @@ export async function POST(req: Request) {
 
     const body = (await req.json()) as PostTeamLinksBody;
     const { db } = await getRequestDeps();
+
+    // Target department: leader adds to their department, superadmin can specify
+    const targetDeptId = session.userRole === "superadmin"
+      ? (body.departmentId ?? null)
+      : (session.userDepartmentId ?? null);
 
     // Get current max sort_order
     const existing = await db.query.teamTaskLinks.findMany({
@@ -48,6 +69,7 @@ export async function POST(req: Request) {
         url,
         sortOrder: nextOrder++,
         addedBy: session.userId,
+        departmentId: targetDeptId,
       }));
 
     for (const row of rows) {
@@ -71,6 +93,25 @@ export async function DELETE(req: Request) {
     }
 
     const { db } = await getRequestDeps();
+
+    const link = await db.query.teamTaskLinks.findFirst({
+      where: eq(teamTaskLinks.id, id),
+    });
+
+    if (!link) {
+      return NextResponse.json({ error: "Link not found" }, { status: 404 });
+    }
+
+    // Normal admin can only delete links of their department
+    if (session.userRole !== "superadmin") {
+      if (link.departmentId && link.departmentId !== session.userDepartmentId) {
+        return NextResponse.json(
+          { error: "You can only manage links for your own department" },
+          { status: 403 }
+        );
+      }
+    }
+
     await db.delete(teamTaskLinks).where(eq(teamTaskLinks.id, id));
     return NextResponse.json({ ok: true });
   });

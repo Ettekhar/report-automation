@@ -102,10 +102,13 @@ export const verifications = sqliteTable("verification", {
 // ---------------------------------------------------------------------------
 export const teamTaskLinks = sqliteTable("team_task_links", {
   id: text("id").primaryKey(),
-  url: text("url").notNull().unique(),
+  url: text("url").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
   addedBy: text("added_by").references(() => users.id, {
     onDelete: "set null",
+  }),
+  departmentId: text("department_id").references(() => departments.id, {
+    onDelete: "cascade",
   }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
@@ -213,6 +216,18 @@ export const submissionEdits = sqliteTable("submission_edits", {
 // ---------------------------------------------------------------------------
 export const departmentsRelations = relations(departments, ({ many }) => ({
   users: many(users),
+  teamTaskLinks: many(teamTaskLinks),
+}));
+
+export const teamTaskLinksRelations = relations(teamTaskLinks, ({ one }) => ({
+  department: one(departments, {
+    fields: [teamTaskLinks.departmentId],
+    references: [departments.id],
+  }),
+  addedByUser: one(users, {
+    fields: [teamTaskLinks.addedBy],
+    references: [users.id],
+  }),
 }));
 
 export const usersRelations = relations(users, ({ one, many }) => ({

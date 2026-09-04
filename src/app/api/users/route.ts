@@ -2,21 +2,38 @@ import { NextResponse } from "next/server";
 import { requireSession, getRequestDeps, withErrorHandling } from "@/lib/api-helpers";
 import { requirePermission } from "@/lib/permissions";
 import { users, departments } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 import type { Role } from "@/lib/permissions";
 
-
-
 // ---------------------------------------------------------------------------
-// GET /api/users — list all users (admin/reviewer only)
+// GET /api/users — list users (department-scoped for normal admin/reviewer)
 // ---------------------------------------------------------------------------
-export async function GET() {
+export async function GET(req: Request) {
   return withErrorHandling(async () => {
     const session = await requireSession();
     requirePermission(session.userRole, "view:all");
     const { db } = await getRequestDeps();
 
+    const url = new URL(req.url);
+    const deptParam = url.searchParams.get("departmentId");
+
+    let whereCondition = undefined;
+
+    if (session.userRole === "superadmin") {
+      if (deptParam && deptParam !== "all") {
+        whereCondition = deptParam === "unassigned" ? isNull(users.departmentId) : eq(users.departmentId, deptParam);
+      }
+    } else {
+      // Normal admin / reviewer: only see people in their own department
+      if (session.userDepartmentId) {
+        whereCondition = eq(users.departmentId, session.userDepartmentId);
+      } else {
+        whereCondition = isNull(users.departmentId);
+      }
+    }
+
     const rows = await db.query.users.findMany({
+      where: whereCondition,
       columns: {
         id: true,
         name: true,
@@ -33,7 +50,15 @@ export async function GET() {
       orderBy: (u, { asc }) => [asc(u.name)],
     });
 
-    return NextResponse.json(rows);
+    // Invisibility: mask superadmin as admin for anyone who is not superadmin
+    const sanitizedRows = rows.map((u) => {
+      if (session.userRole !== "superadmin" && u.role === "superadmin") {
+        return { ...u, role: "admin" as Role };
+      }
+      return u;
+    });
+
+    return NextResponse.json(sanitizedRows);
   });
 }
 
@@ -65,6 +90,23 @@ export async function PATCH(req: Request) {
 
     if (!targetUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    // Normal admin can only manage users in their own department
+    if (session.userRole !== "superadmin") {
+      if (!session.userDepartmentId || targetUser.departmentId !== session.userDepartmentId) {
+        return NextResponse.json(
+          { error: "You can only manage users within your own department" },
+          { status: 403 }
+        );
+      }
+      // Normal admin cannot move users between departments
+      if (body.departmentId !== undefined && body.departmentId !== targetUser.departmentId) {
+        return NextResponse.json(
+          { error: "Only superadmin can reassign user departments" },
+          { status: 403 }
+        );
+      }
     }
 
     const updates: Partial<{
@@ -110,8 +152,8 @@ export async function PATCH(req: Request) {
       updates.role = body.role;
     }
 
-    // Department changes
-    if (body.departmentId !== undefined) {
+    // Department changes (superadmin only)
+    if (body.departmentId !== undefined && session.userRole === "superadmin") {
       if (body.departmentId) {
         const dept = await db.query.departments.findFirst({
           where: eq(departments.id, body.departmentId),
@@ -138,7 +180,7 @@ export async function PATCH(req: Request) {
 }
 
 // ---------------------------------------------------------------------------
-// DELETE /api/users?userId=... — remove a user (admin / superadmin)
+// DELETE /api/users?userId=... — remove a user
 // ---------------------------------------------------------------------------
 export async function DELETE(req: Request) {
   return withErrorHandling(async () => {
@@ -168,15 +210,20 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Normal admin cannot delete an admin or superadmin
-    if (
-      (targetUser.role === "admin" || targetUser.role === "superadmin") &&
-      session.userRole !== "superadmin"
-    ) {
-      return NextResponse.json(
-        { error: "Only superadmin can delete an admin" },
-        { status: 403 }
-      );
+    // Normal admin can only remove users within their own department
+    if (session.userRole !== "superadmin") {
+      if (!session.userDepartmentId || targetUser.departmentId !== session.userDepartmentId) {
+        return NextResponse.json(
+          { error: "You can only remove users within your own department" },
+          { status: 403 }
+        );
+      }
+      if (targetUser.role === "admin" || targetUser.role === "superadmin") {
+        return NextResponse.json(
+          { error: "Only superadmin can delete an admin" },
+          { status: 403 }
+        );
+      }
     }
 
     await db.delete(users).where(eq(users.id, userId));

@@ -1,28 +1,54 @@
 import { NextResponse } from "next/server";
 import { requireSession, getRequestDeps, withErrorHandling } from "@/lib/api-helpers";
 import { requirePermission } from "@/lib/permissions";
-import { scheduleAssignments } from "@/db/schema";
-import { eq, and, gte, lte, inArray } from "drizzle-orm";
-
-
+import { scheduleAssignments, users } from "@/db/schema";
+import { eq, and, gte, lte, inArray, isNull } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // GET /api/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD
-// Returns assignments within date range. Open to all authenticated users.
+// Returns assignments within date range, scoped to user's department
 // ---------------------------------------------------------------------------
 export async function GET(req: Request) {
   return withErrorHandling(async () => {
-    await requireSession();
+    const session = await requireSession();
     const { db } = await getRequestDeps();
     const url = new URL(req.url);
     const from = url.searchParams.get("from");
     const to = url.searchParams.get("to");
     const userId = url.searchParams.get("userId");
+    const deptParam = url.searchParams.get("departmentId");
 
     const conditions = [];
     if (from) conditions.push(gte(scheduleAssignments.assignedDate, from));
     if (to) conditions.push(lte(scheduleAssignments.assignedDate, to));
     if (userId) conditions.push(eq(scheduleAssignments.userId, userId));
+
+    if (session.userRole === "superadmin") {
+      if (deptParam && deptParam !== "all") {
+        const deptUsers = await db.query.users.findMany({
+          where: deptParam === "unassigned" ? isNull(users.departmentId) : eq(users.departmentId, deptParam),
+          columns: { id: true },
+        });
+        const uids = deptUsers.map((u) => u.id);
+        if (uids.length === 0) return NextResponse.json([]);
+        conditions.push(inArray(scheduleAssignments.userId, uids));
+      }
+    } else {
+      // Normal admin / member / reviewer: only see their department's assignments
+      const deptUsers = session.userDepartmentId
+        ? await db.query.users.findMany({
+            where: eq(users.departmentId, session.userDepartmentId),
+            columns: { id: true },
+          })
+        : await db.query.users.findMany({
+            where: eq(users.id, session.userId),
+            columns: { id: true },
+          });
+
+      const uids = deptUsers.map((u) => u.id);
+      if (uids.length === 0) return NextResponse.json([]);
+      conditions.push(inArray(scheduleAssignments.userId, uids));
+    }
 
     const rows = await db.query.scheduleAssignments.findMany({
       where: conditions.length ? and(...conditions) : undefined,
@@ -45,9 +71,9 @@ interface ScheduleBody {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/schedule — assign user(s) to date(s) (supports single or date ranges)
+// POST /api/schedule — assign user(s) to date(s)
 // Body: { userId, date } OR { assignments: [{ userId, date }], replace?: boolean }
-// Admin only
+// Scoped to leader's department
 // ---------------------------------------------------------------------------
 export async function POST(req: Request) {
   return withErrorHandling(async () => {
@@ -64,13 +90,47 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid schedule assignment payload" }, { status: 400 });
     }
 
+    // Normal admin can only assign users in their own department
+    if (session.userRole !== "superadmin") {
+      const targetUserIds = list.map((l) => l.userId);
+      const targetUsers = await db.query.users.findMany({
+        where: inArray(users.id, targetUserIds),
+        columns: { id: true, departmentId: true },
+      });
+      const invalid = targetUsers.some((u) => u.departmentId !== session.userDepartmentId);
+      if (invalid) {
+        return NextResponse.json(
+          { error: "You can only assign schedules to members of your own department" },
+          { status: 403 }
+        );
+      }
+    }
+
     const dates = [...new Set(list.map((l) => l.date))];
 
-    // If replace is requested, remove existing assignments on these dates first
+    // If replace is requested, remove existing assignments on these dates for allowed users
     if (body.replace && dates.length > 0) {
-      await db
-        .delete(scheduleAssignments)
-        .where(inArray(scheduleAssignments.assignedDate, dates));
+      if (session.userRole === "superadmin") {
+        await db
+          .delete(scheduleAssignments)
+          .where(inArray(scheduleAssignments.assignedDate, dates));
+      } else {
+        const deptUsers = await db.query.users.findMany({
+          where: eq(users.departmentId, session.userDepartmentId!),
+          columns: { id: true },
+        });
+        const deptUserIds = deptUsers.map((u) => u.id);
+        if (deptUserIds.length > 0) {
+          await db
+            .delete(scheduleAssignments)
+            .where(
+              and(
+                inArray(scheduleAssignments.assignedDate, dates),
+                inArray(scheduleAssignments.userId, deptUserIds)
+              )
+            );
+        }
+      }
     }
 
     const rows = list.map((a) => ({
@@ -93,11 +153,6 @@ export async function POST(req: Request) {
 
 // ---------------------------------------------------------------------------
 // DELETE /api/schedule
-// Supports:
-// - ?userId=...&date=YYYY-MM-DD (remove specific user from specific date)
-// - ?from=YYYY-MM-DD&to=YYYY-MM-DD (clear all assignments in date range)
-// - ?date=YYYY-MM-DD (clear all assignments on a date)
-// Admin only
 // ---------------------------------------------------------------------------
 export async function DELETE(req: Request) {
   return withErrorHandling(async () => {
@@ -110,6 +165,20 @@ export async function DELETE(req: Request) {
     const date = url.searchParams.get("date");
     const from = url.searchParams.get("from");
     const to = url.searchParams.get("to");
+
+    // Normal admin department check
+    if (session.userRole !== "superadmin" && userId) {
+      const target = await db.query.users.findFirst({
+        where: eq(users.id, userId),
+        columns: { departmentId: true },
+      });
+      if (target?.departmentId !== session.userDepartmentId) {
+        return NextResponse.json(
+          { error: "You can only modify schedule for your own department" },
+          { status: 403 }
+        );
+      }
+    }
 
     if (userId && date) {
       await db
@@ -124,21 +193,58 @@ export async function DELETE(req: Request) {
     }
 
     if (from && to) {
-      await db
-        .delete(scheduleAssignments)
-        .where(
-          and(
-            gte(scheduleAssignments.assignedDate, from),
-            lte(scheduleAssignments.assignedDate, to)
-          )
-        );
+      if (session.userRole === "superadmin") {
+        await db
+          .delete(scheduleAssignments)
+          .where(
+            and(
+              gte(scheduleAssignments.assignedDate, from),
+              lte(scheduleAssignments.assignedDate, to)
+            )
+          );
+      } else {
+        const deptUsers = await db.query.users.findMany({
+          where: eq(users.departmentId, session.userDepartmentId!),
+          columns: { id: true },
+        });
+        const uids = deptUsers.map((u) => u.id);
+        if (uids.length > 0) {
+          await db
+            .delete(scheduleAssignments)
+            .where(
+              and(
+                gte(scheduleAssignments.assignedDate, from),
+                lte(scheduleAssignments.assignedDate, to),
+                inArray(scheduleAssignments.userId, uids)
+              )
+            );
+        }
+      }
       return NextResponse.json({ ok: true, clearedRange: { from, to } });
     }
 
     if (date) {
-      await db
-        .delete(scheduleAssignments)
-        .where(eq(scheduleAssignments.assignedDate, date));
+      if (session.userRole === "superadmin") {
+        await db
+          .delete(scheduleAssignments)
+          .where(eq(scheduleAssignments.assignedDate, date));
+      } else {
+        const deptUsers = await db.query.users.findMany({
+          where: eq(users.departmentId, session.userDepartmentId!),
+          columns: { id: true },
+        });
+        const uids = deptUsers.map((u) => u.id);
+        if (uids.length > 0) {
+          await db
+            .delete(scheduleAssignments)
+            .where(
+              and(
+                eq(scheduleAssignments.assignedDate, date),
+                inArray(scheduleAssignments.userId, uids)
+              )
+            );
+        }
+      }
       return NextResponse.json({ ok: true, clearedDate: date });
     }
 

@@ -268,22 +268,24 @@ export default function UserManager({
             <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "4px 0 0" }}>
               {isSuperadmin
                 ? "As Superadmin, you can create departments, assign any role (including Admin), and assign team members to departments."
-                : "As Admin, you can assign users to departments, change Member/Reviewer roles, and view department groups."}
+                : "As Department Leader, you can manage team members, assign Member/Reviewer ranks, and manage dev task links for your department."}
             </p>
           </div>
 
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {isSuperadmin && (
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => setShowNewDeptModal(true)}
-              >
-                + New Department
-              </button>
+              <>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setShowNewDeptModal(true)}
+                >
+                  + New Department
+                </button>
+                <Link href="/admin/departments" className="btn btn-ghost btn-sm">
+                  🏢 Department Hub &rarr;
+                </Link>
+              </>
             )}
-            <Link href="/admin/departments" className="btn btn-ghost btn-sm">
-              🏢 Department Hub &rarr;
-            </Link>
           </div>
         </div>
 
@@ -314,48 +316,52 @@ export default function UserManager({
               />
             </div>
 
-            {/* Department Filter */}
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 600 }}>DEPARTMENT:</span>
-              <select
-                className="select"
-                style={{ width: "auto", fontSize: "0.8rem", padding: "0.35rem 0.6rem" }}
-                value={selectedDeptFilter}
-                onChange={(e) => setSelectedDeptFilter(e.target.value)}
-              >
-                <option value="all">All Departments ({users.length})</option>
-                <option value="unassigned">
-                  Unassigned ({users.filter((u) => !u.departmentId).length})
-                </option>
-                {departments.map((d) => {
-                  const count = users.filter((u) => u.departmentId === d.id).length;
-                  return (
-                    <option key={d.id} value={d.id}>
-                      {d.name} ({count})
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
+            {/* Department Filter (superadmin only) */}
+            {isSuperadmin && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 600 }}>DEPARTMENT:</span>
+                <select
+                  className="select"
+                  style={{ width: "auto", fontSize: "0.8rem", padding: "0.35rem 0.6rem" }}
+                  value={selectedDeptFilter}
+                  onChange={(e) => setSelectedDeptFilter(e.target.value)}
+                >
+                  <option value="all">All Departments ({users.length})</option>
+                  <option value="unassigned">
+                    Unassigned ({users.filter((u) => !u.departmentId).length})
+                  </option>
+                  {departments.map((d) => {
+                    const count = users.filter((u) => u.departmentId === d.id).length;
+                    return (
+                      <option key={d.id} value={d.id}>
+                        {d.name} ({count})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
           </div>
 
-          {/* View Mode Toggle */}
-          <div style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(0,0,0,0.2)", padding: 3, borderRadius: "var(--radius-sm)" }}>
-            <button
-              className={`btn btn-sm ${viewMode === "table" ? "btn-primary" : "btn-ghost"}`}
-              style={{ padding: "0.3rem 0.65rem", fontSize: "0.75rem" }}
-              onClick={() => setViewMode("table")}
-            >
-              📑 Table View
-            </button>
-            <button
-              className={`btn btn-sm ${viewMode === "grouped" ? "btn-primary" : "btn-ghost"}`}
-              style={{ padding: "0.3rem 0.65rem", fontSize: "0.75rem" }}
-              onClick={() => setViewMode("grouped")}
-            >
-              🏢 Department View
-            </button>
-          </div>
+          {/* View Mode Toggle (superadmin only) */}
+          {isSuperadmin && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(0,0,0,0.2)", padding: 3, borderRadius: "var(--radius-sm)" }}>
+              <button
+                className={`btn btn-sm ${viewMode === "table" ? "btn-primary" : "btn-ghost"}`}
+                style={{ padding: "0.3rem 0.65rem", fontSize: "0.75rem" }}
+                onClick={() => setViewMode("table")}
+              >
+                📑 Table View
+              </button>
+              <button
+                className={`btn btn-sm ${viewMode === "grouped" ? "btn-primary" : "btn-ghost"}`}
+                style={{ padding: "0.3rem 0.65rem", fontSize: "0.75rem" }}
+                onClick={() => setViewMode("grouped")}
+              >
+                🏢 Department View
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ── View 1: Standard Table View ── */}
@@ -395,26 +401,32 @@ export default function UserManager({
 
                         {/* Department selector */}
                         <td>
-                          <select
-                            className="select"
-                            style={{
-                              width: "auto",
-                              minWidth: 140,
-                              padding: "0.3rem 0.6rem",
-                              fontSize: "0.8rem",
-                              borderColor: u.departmentId ? "rgba(99, 102, 241, 0.4)" : undefined,
-                            }}
-                            value={u.departmentId || "none"}
-                            disabled={loading}
-                            onChange={(e) => handleDepartmentChange(u.id, e.target.value)}
-                          >
-                            <option value="none">— No Department —</option>
-                            {departments.map((d) => (
-                              <option key={d.id} value={d.id}>
-                                {d.name}
-                              </option>
-                            ))}
-                          </select>
+                          {isSuperadmin ? (
+                            <select
+                              className="select"
+                              style={{
+                                width: "auto",
+                                minWidth: 140,
+                                padding: "0.3rem 0.6rem",
+                                fontSize: "0.8rem",
+                                borderColor: u.departmentId ? "rgba(99, 102, 241, 0.4)" : undefined,
+                              }}
+                              value={u.departmentId || "none"}
+                              disabled={loading}
+                              onChange={(e) => handleDepartmentChange(u.id, e.target.value)}
+                            >
+                              <option value="none">— No Department —</option>
+                              {departments.map((d) => (
+                                <option key={d.id} value={d.id}>
+                                  {d.name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="badge badge-info" style={{ fontSize: "0.75rem" }}>
+                              🏢 {u.department?.name || "Your Department"}
+                            </span>
+                          )}
                         </td>
 
                         {/* Role selector */}
@@ -426,14 +438,14 @@ export default function UserManager({
                                 width: "auto",
                                 padding: "0.3rem 0.6rem",
                                 fontSize: "0.8rem",
-                                fontWeight: u.role === "superadmin" || u.role === "admin" ? 600 : 400,
+                                fontWeight: u.role === "admin" ? 600 : 400,
                               }}
-                              value={u.role}
+                              value={!isSuperadmin && u.role === "superadmin" ? "admin" : u.role}
                               disabled={loading || !canEditRole}
                               onChange={(e) => handleRoleChange(u.id, e.target.value as Role)}
                               title={
                                 !canEditRole && isTargetAdmin && !isSuperadmin
-                                  ? "Only superadmin can modify an admin's role"
+                                  ? "Department leaders cannot modify admin roles"
                                   : undefined
                               }
                             >
@@ -446,12 +458,11 @@ export default function UserManager({
                                 </>
                               ) : (
                                 <>
-                                  {/* Normal admin can only toggle regular roles, but if target is admin, keep it visible */}
                                   <option value="member">member</option>
                                   <option value="reviewer">reviewer</option>
                                   {isTargetAdmin && (
-                                    <option value={u.role} disabled>
-                                      {u.role} (Locked)
+                                    <option value="admin" disabled>
+                                      admin (Leader)
                                     </option>
                                   )}
                                 </>
@@ -467,9 +478,9 @@ export default function UserManager({
                                   background: "rgba(255,255,255,0.06)",
                                   color: "#94a3b8",
                                 }}
-                                title="Only superadmin can modify admin roles"
+                                title="Leader rank is protected"
                               >
-                                🔒 Protected
+                                🔒 Leader
                               </span>
                             )}
                           </div>
@@ -847,9 +858,13 @@ export default function UserManager({
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
           <div>
-            <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Shared Team Dev Task Links</h2>
+            <h2 style={{ fontSize: "1.1rem", margin: 0 }}>
+              {isSuperadmin ? "Team Dev Task Links (Global & Departments)" : "Department Dev Task Links"}
+            </h2>
             <p style={{ fontSize: "0.8rem", color: "#64748b", margin: 0 }}>
-              These ClickUp / task URLs automatically appear in every member&apos;s report preview and final output.
+              {isSuperadmin
+                ? "ClickUp / task URLs that appear in member report forms and final generated outputs."
+                : "Assign development task URLs for your department. Members will see these prefilled when submitting daily reports."}
             </p>
           </div>
           <span className="badge badge-admin">{links.length} Links</span>
