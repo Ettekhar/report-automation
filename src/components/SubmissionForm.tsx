@@ -49,6 +49,12 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
   const [report, setReport] = useState(existingSubmission?.finalReport ?? "");
   const [reportEdited, setReportEdited] = useState(false);
 
+  // Superadmin-controlled: save automatically when "Generate report" is clicked.
+  const [autoSaveOnGenerate, setAutoSaveOnGenerate] = useState<boolean | null>(null);
+  // Track the id of the latest save so a second click PATCHes instead of POSTing.
+  const [savedId, setSavedId] = useState<string | null>(existingSubmission?.id ?? null);
+  const targetId = savedId ?? existingSubmission?.id ?? null;
+
   // Restore from existing submission (edit mode)
   const initRaw = existingSubmission?.rawInput ? (() => {
     try { return JSON.parse(existingSubmission.rawInput) || {}; } catch { return {}; }
@@ -78,6 +84,19 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
     fetch("/api/team-links")
       .then((r) => r.json())
       .then((data: unknown) => setTeamLinks(Array.isArray(data) ? (data as TeamLink[]) : []))
+      .catch(() => {});
+  }, []);
+
+  // Load the superadmin-controlled auto-save-on-generate setting
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((data: unknown) => {
+        const settingsData = (data ?? {}) as Record<string, unknown>;
+        if (typeof settingsData.autoSaveOnGenerate === "boolean") {
+          setAutoSaveOnGenerate(settingsData.autoSaveOnGenerate);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -156,15 +175,22 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
   }
 
   function generatePreview() {
-    setReport(generateReport(buildInput()));
+    const preview = generateReport(buildInput());
+    setReport(preview);
     setReportEdited(false);
     setStep("preview");
+    // Auto-save-on-generate: persist immediately (POST or PATCH) while the
+    // user is on the preview step. Controlled by the superadmin setting.
+    if (autoSaveOnGenerate && !saving) {
+      void saveReport(preview);
+    }
   }
 
-  async function handleSave() {
+  async function saveReport(reportOverride?: string) {
     setSaving(true);
     setStatus(null);
     try {
+      const finalReport = reportOverride ?? (reportEdited ? report : undefined);
       const payload = {
         ...fields,
         tasksDoneLinks: (fields.tasksDoneLinks as string)
@@ -173,10 +199,10 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
           .filter(Boolean),
         date: reportDate,
         rawWhatsappText: rawText || null,
-        finalReport: reportEdited ? report : undefined,
+        finalReport,
       };
-      const url = existingSubmission ? `/api/submissions/${existingSubmission.id}` : "/api/submissions";
-      const method = existingSubmission ? "PATCH" : "POST";
+      const url = targetId ? `/api/submissions/${targetId}` : "/api/submissions";
+      const method = targetId ? "PATCH" : "POST";
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -184,13 +210,25 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
       });
       const data = (await res.json()) as { id?: string; finalReport?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Save failed");
-      setStatus({ type: "success", msg: existingSubmission ? "Submission updated!" : "Saved successfully!" });
+      if (data.id) setSavedId(data.id);
+      setStatus({
+        type: "success",
+        msg: reportOverride !== undefined
+          ? "Report generated & saved ✓"
+          : targetId
+            ? "Submission updated!"
+            : "Saved successfully!",
+      });
       if (onSaved && data.id && data.finalReport) onSaved(data.id, data.finalReport);
     } catch (e: unknown) {
       setStatus({ type: "error", msg: (e as Error).message });
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleSave() {
+    await saveReport();
   }
 
   // ── Field renderers ────────────────────────────────────────────────────────
@@ -423,7 +461,7 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
               &larr; Back
             </button>
             <button className="btn btn-primary" onClick={generatePreview} id="generate-preview-btn">
-              📄 Generate report &rarr;
+              {autoSaveOnGenerate ? "📄 Generate & save report →" : "📄 Generate report →"}
             </button>
           </div>
         </div>
@@ -462,7 +500,7 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
               disabled={saving}
               id="save-submission-btn"
             >
-              {saving ? <><span className="spinner" /> Saving…</> : <>{existingSubmission ? "💾 Update" : "💾 Save"} submission</>}
+              {saving ? <><span className="spinner" /> Saving…</> : <>{targetId ? "💾 Update" : "💾 Save"} submission</>}
             </button>
             <button
               className="btn btn-ghost"

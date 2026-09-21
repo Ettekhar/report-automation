@@ -26,7 +26,9 @@ export type Action =
   | "view:departments"   // see department lists & department-wise members
   | "manage:departments" // create/edit/delete departments (superadmin only)
   // Data
-  | "export:data";  // download fine-tuning JSONL export
+  | "export:data"      // download fine-tuning JSONL export
+  // Settings
+  | "manage:settings"; // change global app settings (superadmin only)
   // Team links
   // (viewing is public to all roles; editing is admin-only via manage:users reuse)
 
@@ -43,6 +45,7 @@ export const PERMISSIONS: Record<Role, Action[]> = {
     "view:departments",
     "manage:departments",
     "export:data",
+    "manage:settings",
   ],
   admin: [
     "view:own",

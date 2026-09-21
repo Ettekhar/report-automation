@@ -212,6 +212,17 @@ export const submissionEdits = sqliteTable("submission_edits", {
 });
 
 // ---------------------------------------------------------------------------
+// APP SETTINGS (key/value JSON store, superadmin-controlled)
+// ---------------------------------------------------------------------------
+export const appSettings = sqliteTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(), // JSON-encoded value
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+// ---------------------------------------------------------------------------
 // RELATIONS
 // ---------------------------------------------------------------------------
 export const departmentsRelations = relations(departments, ({ many }) => ({

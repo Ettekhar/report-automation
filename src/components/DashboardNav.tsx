@@ -19,6 +19,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/users",      label: "Users",          icon: "👥", roles: ["admin", "superadmin"] },
   { href: "/admin/departments",label: "Departments",    icon: "🏢", roles: ["superadmin"] },
   { href: "/admin/export",     label: "Export Dataset", icon: "📦", roles: ["admin", "superadmin"] },
+  { href: "/admin/settings",   label: "Settings",       icon: "⚙️", roles: ["superadmin"] },
 ];
 
 export default function DashboardNav({
