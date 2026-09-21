@@ -51,9 +51,10 @@ export default function UserManager({
   // ClickUp Sync State
   const [clickupMemberName, setClickupMemberName] = useState("sezan, medul, taion, sabbir");
   const [clickupLoading, setClickupLoading] = useState(false);
+  const [clickupFilter, setClickupFilter] = useState<string | null>(null); // null = All
   const [clickupPreview, setClickupPreview] = useState<{
     members: { username: string; email: string; count: number }[];
-    tasks: { id: string; name: string; formattedUrl: string }[];
+    tasks: { id: string; name: string; formattedUrl: string; assignees: string[] }[];
     totalCount: number;
     notFound: string[];
   } | null>(null);
@@ -241,14 +242,23 @@ export default function UserManager({
       const data = (await res.json()) as {
         error?: string;
         members: { username: string; email: string; count: number }[];
-        tasks: { id: string; name: string; formattedUrl: string }[];
+        tasks: { id: string; name: string; formattedUrl: string; assignees?: { username: string }[] }[];
         urls: string[];
         totalCount: number;
         notFound: string[];
       };
       if (!res.ok) throw new Error(data.error || "Failed to fetch from ClickUp");
 
-      setClickupPreview({ members: data.members, tasks: data.tasks, totalCount: data.totalCount, notFound: data.notFound });
+      setClickupFilter(null); // reset filter to All when new preview loads
+      setClickupPreview({
+        members: data.members,
+        tasks: (data.tasks || []).map((t) => ({
+          ...t,
+          assignees: (t.assignees || []).map((a) => a.username),
+        })),
+        totalCount: data.totalCount,
+        notFound: data.notFound,
+      });
       // Preload links into textarea (already deduplicated)
       setNewLinkText(data.urls.join("\n"));
       const notFoundMsg = data.notFound?.length ? ` (not found: ${data.notFound.join(", ")})` : "";
@@ -1057,67 +1067,118 @@ export default function UserManager({
             )}
           </div>
 
-          {clickupPreview && clickupPreview.tasks && (
-            <div
-              style={{
-                marginTop: "0.75rem",
-                padding: "0.6rem 0.75rem",
-                background: "var(--color-surface-2)",
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              {/* Per-member summary */}
-              <p style={{ fontSize: "0.78rem", fontWeight: 600, margin: "0 0 0.4rem 0" }}>
-                {clickupPreview.totalCount} unique overdue task link(s) found across {clickupPreview.members.length} member(s):
-              </p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: "0.5rem" }}>
-                {clickupPreview.members.map((m) => (
-                  <span
-                    key={m.email}
+          {clickupPreview && clickupPreview.tasks && (() => {
+            // Filter tasks by selected member chip
+            const filteredTasks = clickupFilter
+              ? clickupPreview.tasks.filter((t) =>
+                  t.assignees.some((a) => a.toLowerCase().includes(clickupFilter.toLowerCase()))
+                )
+              : clickupPreview.tasks;
+
+            return (
+              <div
+                style={{
+                  marginTop: "0.75rem",
+                  padding: "0.6rem 0.75rem",
+                  background: "var(--color-surface-2)",
+                  borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                {/* Filter chips */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: "0.6rem", alignItems: "center" }}>
+                  <span style={{ fontSize: "0.72rem", color: "#64748b", marginRight: 2 }}>Filter:</span>
+
+                  {/* ALL chip */}
+                  <button
+                    onClick={() => setClickupFilter(null)}
                     style={{
                       fontSize: "0.72rem",
-                      background: "rgba(56,141,60,0.12)",
-                      border: "1px solid rgba(56,141,60,0.3)",
+                      background: clickupFilter === null ? "rgba(56,141,60,0.8)" : "rgba(56,141,60,0.1)",
+                      border: "1px solid rgba(56,141,60,0.4)",
                       borderRadius: 99,
-                      padding: "2px 8px",
+                      padding: "2px 10px",
+                      cursor: "pointer",
+                      color: clickupFilter === null ? "#fff" : "inherit",
+                      fontWeight: clickupFilter === null ? 700 : 400,
                     }}
                   >
-                    {m.username} <strong>({m.count} overdue)</strong>
-                  </span>
-                ))}
-                {clickupPreview.notFound.length > 0 && clickupPreview.notFound.map((nf) => (
-                  <span
-                    key={nf}
-                    style={{
-                      fontSize: "0.72rem",
-                      background: "rgba(220,38,38,0.1)",
-                      border: "1px solid rgba(220,38,38,0.3)",
-                      borderRadius: 99,
-                      padding: "2px 8px",
-                      color: "var(--color-danger)",
-                    }}
-                  >
-                    ❌ &quot;{nf}&quot; not found
-                  </span>
-                ))}
-              </div>
-              {clickupPreview.tasks.length === 0 ? (
-                <p style={{ fontSize: "0.75rem", color: "#64748b", margin: 0 }}>🎉 No overdue tasks!</p>
-              ) : (
-                <ul style={{ margin: 0, paddingLeft: "1.2rem", fontSize: "0.75rem", color: "#475569" }}>
-                  {clickupPreview.tasks.map((t) => (
-                    <li key={t.id} style={{ marginBottom: 4 }}>
-                      <strong>{t.name}</strong> —{" "}
-                      <a href={t.formattedUrl} target="_blank" rel="noopener noreferrer" style={{ wordBreak: "break-all" }}>
-                        {t.formattedUrl}
-                      </a>
-                    </li>
+                    All ({clickupPreview.totalCount})
+                  </button>
+
+                  {/* Per-member chips */}
+                  {clickupPreview.members.map((m) => {
+                    const isActive = clickupFilter === m.username;
+                    return (
+                      <button
+                        key={m.email}
+                        onClick={() => setClickupFilter(isActive ? null : m.username)}
+                        style={{
+                          fontSize: "0.72rem",
+                          background: isActive ? "rgba(56,141,60,0.8)" : "rgba(56,141,60,0.1)",
+                          border: `1px solid ${isActive ? "rgba(56,141,60,0.8)" : "rgba(56,141,60,0.3)"}`,
+                          borderRadius: 99,
+                          padding: "2px 10px",
+                          cursor: "pointer",
+                          color: isActive ? "#fff" : "inherit",
+                          fontWeight: isActive ? 700 : 400,
+                          transition: "background 0.15s",
+                        }}
+                      >
+                        {m.username} <strong>({m.count})</strong>
+                      </button>
+                    );
+                  })}
+
+                  {/* Not-found red badges */}
+                  {clickupPreview.notFound.map((nf) => (
+                    <span
+                      key={nf}
+                      style={{
+                        fontSize: "0.72rem",
+                        background: "rgba(220,38,38,0.1)",
+                        border: "1px solid rgba(220,38,38,0.3)",
+                        borderRadius: 99,
+                        padding: "2px 8px",
+                        color: "var(--color-danger)",
+                      }}
+                    >
+                      ❌ &quot;{nf}&quot; not found
+                    </span>
                   ))}
-                </ul>
-              )}
-            </div>
-          )}
+                </div>
+
+                {/* Task count for current filter */}
+                <p style={{ fontSize: "0.75rem", color: "#64748b", margin: "0 0 0.4rem 0" }}>
+                  {clickupFilter
+                    ? `${filteredTasks.length} task(s) for ${clickupFilter}`
+                    : `${clickupPreview.totalCount} unique task(s) total (deduplicated)`
+                  }
+                </p>
+
+                {/* Task list */}
+                {filteredTasks.length === 0 ? (
+                  <p style={{ fontSize: "0.75rem", color: "#64748b", margin: 0 }}>🎉 No overdue tasks for this member!</p>
+                ) : (
+                  <ul style={{ margin: 0, paddingLeft: "1.2rem", fontSize: "0.75rem", color: "#475569" }}>
+                    {filteredTasks.map((t) => (
+                      <li key={t.id} style={{ marginBottom: 6 }}>
+                        <strong>{t.name}</strong> —{" "}
+                        <a href={t.formattedUrl} target="_blank" rel="noopener noreferrer" style={{ wordBreak: "break-all" }}>
+                          {t.formattedUrl}
+                        </a>
+                        {t.assignees.length > 1 && (
+                          <span style={{ marginLeft: 6, fontSize: "0.68rem", color: "#94a3b8" }}>
+                            shared with {t.assignees.filter((a) => !a.toLowerCase().includes((clickupFilter || "").toLowerCase())).join(", ")}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         <div className="card-sm">
