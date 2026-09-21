@@ -174,3 +174,82 @@ export async function fetchClickUpOverdueTasks(
     count: mappedTasks.length,
   };
 }
+
+/**
+ * Fetch overdue tasks for multiple team members (comma/newline-separated names).
+ * Deduplicates tasks by task ID — if sezan and taion share a task, it only appears once.
+ */
+export async function fetchClickUpOverdueTasksForMultiple(
+  queryNames: string | string[],
+  options?: { apiKey?: string; teamId?: string; timezone?: string }
+): Promise<{
+  members: { username: string; email: string; count: number }[];
+  tasks: ClickUpTask[];
+  urls: string[];
+  totalCount: number;
+  notFound: string[];
+}> {
+  // Parse names: accept "sezan,medul,taion" or ["sezan","medul","taion"]
+  const names = (Array.isArray(queryNames) ? queryNames : [queryNames])
+    .flatMap((n) => n.split(/[,\n\s]+/))
+    .map((n) => n.trim())
+    .filter(Boolean);
+
+  const apiKey = options?.apiKey || process.env.CLICKUP_API_KEY || DEFAULT_API_KEY;
+  const teamId = options?.teamId || process.env.CLICKUP_TEAM_ID || DEFAULT_TEAM_ID;
+
+  // Fetch the member list once, reuse for all names
+  const allMembers = await fetchClickUpMembers(apiKey, teamId);
+
+  const seenTaskIds = new Set<string>();
+  const dedupedTasks: ClickUpTask[] = [];
+  const memberResults: { username: string; email: string; count: number }[] = [];
+  const notFound: string[] = [];
+
+  for (const queryName of names) {
+    const normalizedQuery = queryName.toLowerCase();
+    const matched = allMembers.find(
+      (m) =>
+        m.username.toLowerCase().includes(normalizedQuery) ||
+        m.email.toLowerCase().includes(normalizedQuery)
+    );
+
+    if (!matched) {
+      notFound.push(queryName);
+      continue;
+    }
+
+    let result;
+    try {
+      result = await fetchClickUpOverdueTasks(queryName, options);
+    } catch {
+      notFound.push(queryName);
+      continue;
+    }
+
+    let newForThisMember = 0;
+    for (const task of result.tasks) {
+      if (!seenTaskIds.has(task.id)) {
+        seenTaskIds.add(task.id);
+        dedupedTasks.push(task);
+        newForThisMember++;
+      }
+    }
+
+    memberResults.push({
+      username: matched.username,
+      email: matched.email,
+      count: result.tasks.length, // total overdue for this person (including shared tasks)
+    });
+  }
+
+  const urls = dedupedTasks.map((t) => t.formattedUrl);
+
+  return {
+    members: memberResults,
+    tasks: dedupedTasks,
+    urls,
+    totalCount: dedupedTasks.length,
+    notFound,
+  };
+}

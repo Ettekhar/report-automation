@@ -49,11 +49,13 @@ export default function UserManager({
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // ClickUp Sync State
-  const [clickupMemberName, setClickupMemberName] = useState("sezan");
+  const [clickupMemberName, setClickupMemberName] = useState("sezan, medul, taion, sabbir");
   const [clickupLoading, setClickupLoading] = useState(false);
   const [clickupPreview, setClickupPreview] = useState<{
-    member: { username: string; email: string };
+    members: { username: string; email: string; count: number }[];
     tasks: { id: string; name: string; formattedUrl: string }[];
+    totalCount: number;
+    notFound: string[];
   } | null>(null);
 
   // Filters & View State
@@ -227,30 +229,32 @@ export default function UserManager({
     }
   };
 
-  // Fetch & Preview ClickUp Overdue tasks
+  // Fetch & Preview ClickUp Overdue tasks (supports multiple comma-separated names)
   const handleFetchClickUp = async () => {
     if (!clickupMemberName.trim()) return;
     setClickupLoading(true);
     setMsg(null);
     try {
       const res = await fetch(
-        `/api/clickup/overdue?name=${encodeURIComponent(clickupMemberName.trim())}`
+        `/api/clickup/overdue?names=${encodeURIComponent(clickupMemberName.trim())}`
       );
       const data = (await res.json()) as {
         error?: string;
-        member: { username: string; email: string };
+        members: { username: string; email: string; count: number }[];
         tasks: { id: string; name: string; formattedUrl: string }[];
         urls: string[];
-        count: number;
+        totalCount: number;
+        notFound: string[];
       };
       if (!res.ok) throw new Error(data.error || "Failed to fetch from ClickUp");
 
-      setClickupPreview({ member: data.member, tasks: data.tasks });
-      // Preload links into textarea
+      setClickupPreview({ members: data.members, tasks: data.tasks, totalCount: data.totalCount, notFound: data.notFound });
+      // Preload links into textarea (already deduplicated)
       setNewLinkText(data.urls.join("\n"));
+      const notFoundMsg = data.notFound?.length ? ` (not found: ${data.notFound.join(", ")})` : "";
       setMsg({
         type: "success",
-        text: `Found ${data.count} overdue tasks for ${data.member.username}! Pre-filled links into box below.`,
+        text: `Found ${data.totalCount} unique overdue tasks across ${data.members.length} member(s)!${notFoundMsg}`,
       });
     } catch (err: unknown) {
       setMsg({ type: "error", text: (err as Error).message });
@@ -259,7 +263,7 @@ export default function UserManager({
     }
   };
 
-  // Direct 1-click sync & add ClickUp overdue links to database
+  // Direct 1-click sync & add ClickUp overdue links to database (multi-member, deduped)
   const handleSyncClickUpDirect = async (replace = false) => {
     if (!clickupMemberName.trim()) return;
     setClickupLoading(true);
@@ -269,7 +273,7 @@ export default function UserManager({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: clickupMemberName.trim(),
+          names: clickupMemberName.trim(),
           replaceExisting: replace,
         }),
       });
@@ -277,7 +281,9 @@ export default function UserManager({
         error?: string;
         created?: number;
         skipped?: number;
-        member?: { username: string };
+        totalFound?: number;
+        members?: { username: string }[];
+        notFound?: string[];
       };
       if (!res.ok) throw new Error(data.error || "Failed to sync from ClickUp");
 
@@ -287,9 +293,11 @@ export default function UserManager({
       setLinks(refData);
       setNewLinkText("");
       setClickupPreview(null);
+      const names = data.members?.map((m) => m.username).join(", ") || clickupMemberName;
+      const notFoundMsg = data.notFound?.length ? ` | Not found: ${data.notFound.join(", ")}` : "";
       setMsg({
         type: "success",
-        text: `Synced ClickUp overdue tasks for ${data.member?.username}: ${data.created} added, ${data.skipped} already present.`,
+        text: `Synced ${data.created} new links (${data.skipped} skipped) from ${data.totalFound} tasks across: ${names}${notFoundMsg}`,
       });
     } catch (err: unknown) {
       setMsg({ type: "error", text: (err as Error).message });
@@ -1003,15 +1011,16 @@ export default function UserManager({
             <span style={{ fontSize: "0.72rem", color: "#64748b" }}>Workspace: Cogwheel Marketing</span>
           </div>
           <p style={{ fontSize: "0.78rem", color: "#64748b", margin: "0 0 0.75rem 0" }}>
-            Extract active overdue tasks from ClickUp by member name and dynamically sync their links to member report forms.
+            Enter one or more member names separated by commas — e.g. <code>sezan, medul, taion, sabbir</code>.
+            Tasks shared between members are deduplicated automatically.
           </p>
 
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <input
               type="text"
               className="input"
-              style={{ maxWidth: 200, fontSize: "0.85rem" }}
-              placeholder="e.g. sezan, rifat, ovi..."
+              style={{ flex: 1, minWidth: 220, maxWidth: 400, fontSize: "0.85rem" }}
+              placeholder="e.g. sezan, medul, taion, sabbir"
               value={clickupMemberName}
               onChange={(e) => setClickupMemberName(e.target.value)}
               disabled={clickupLoading}
@@ -1058,9 +1067,41 @@ export default function UserManager({
                 border: "1px solid var(--color-border)",
               }}
             >
+              {/* Per-member summary */}
               <p style={{ fontSize: "0.78rem", fontWeight: 600, margin: "0 0 0.4rem 0" }}>
-                Found {clickupPreview.tasks.length} Overdue Tasks for {clickupPreview.member.username} ({clickupPreview.member.email}):
+                {clickupPreview.totalCount} unique overdue task link(s) found across {clickupPreview.members.length} member(s):
               </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: "0.5rem" }}>
+                {clickupPreview.members.map((m) => (
+                  <span
+                    key={m.email}
+                    style={{
+                      fontSize: "0.72rem",
+                      background: "rgba(56,141,60,0.12)",
+                      border: "1px solid rgba(56,141,60,0.3)",
+                      borderRadius: 99,
+                      padding: "2px 8px",
+                    }}
+                  >
+                    {m.username} <strong>({m.count} overdue)</strong>
+                  </span>
+                ))}
+                {clickupPreview.notFound.length > 0 && clickupPreview.notFound.map((nf) => (
+                  <span
+                    key={nf}
+                    style={{
+                      fontSize: "0.72rem",
+                      background: "rgba(220,38,38,0.1)",
+                      border: "1px solid rgba(220,38,38,0.3)",
+                      borderRadius: 99,
+                      padding: "2px 8px",
+                      color: "var(--color-danger)",
+                    }}
+                  >
+                    ❌ &quot;{nf}&quot; not found
+                  </span>
+                ))}
+              </div>
               {clickupPreview.tasks.length === 0 ? (
                 <p style={{ fontSize: "0.75rem", color: "#64748b", margin: 0 }}>🎉 No overdue tasks!</p>
               ) : (

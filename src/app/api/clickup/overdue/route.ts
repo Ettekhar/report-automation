@@ -1,36 +1,38 @@
 import { NextResponse } from "next/server";
 import { requireSession, getRequestDeps, withErrorHandling } from "@/lib/api-helpers";
 import { requirePermission } from "@/lib/permissions";
-import { fetchClickUpOverdueTasks } from "@/lib/clickup";
+import { fetchClickUpOverdueTasksForMultiple } from "@/lib/clickup";
 import { teamTaskLinks } from "@/db/schema";
-import { eq, or, isNull } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 
-// GET /api/clickup/overdue?name=sezan — fetch overdue tasks for a member from ClickUp
+// GET /api/clickup/overdue?names=sezan,medul,taion — preview overdue tasks for one or more members
 export async function GET(req: Request) {
   return withErrorHandling(async () => {
     await requireSession();
 
     const url = new URL(req.url);
-    const queryName = url.searchParams.get("name") || "sezan";
+    // Accept ?names=sezan,medul,taion  or  ?name=sezan (backwards-compat)
+    const rawNames = url.searchParams.get("names") || url.searchParams.get("name") || "sezan";
 
-    const result = await fetchClickUpOverdueTasks(queryName);
+    const result = await fetchClickUpOverdueTasksForMultiple(rawNames);
     return NextResponse.json(result);
   });
 }
 
-// POST /api/clickup/overdue — fetch from ClickUp and dynamically add links to Team Dev Task Links
+// POST /api/clickup/overdue — fetch from ClickUp and add links to Team Dev Task Links
 export async function POST(req: Request) {
   return withErrorHandling(async () => {
     const session = await requireSession();
     requirePermission(session.userRole, "manage:users");
 
     const body = (await req.json()) as {
-      name?: string;
+      names?: string;   // comma-separated: "sezan,medul,taion"
+      name?: string;    // backwards-compat single name
       departmentId?: string | null;
       replaceExisting?: boolean;
     };
 
-    const queryName = body.name || "sezan";
+    const rawNames = body.names || body.name || "sezan";
     const { db } = await getRequestDeps();
 
     const targetDeptId =
@@ -38,20 +40,22 @@ export async function POST(req: Request) {
         ? (body.departmentId ?? null)
         : (session.userDepartmentId ?? null);
 
-    // 1. Fetch overdue tasks from ClickUp
-    const { member, tasks, urls } = await fetchClickUpOverdueTasks(queryName);
+    // 1. Fetch overdue tasks for all named members (deduped by task ID)
+    const { members, tasks, urls, totalCount, notFound } =
+      await fetchClickUpOverdueTasksForMultiple(rawNames);
 
-    if (urls.length === 0) {
+    if (totalCount === 0) {
       return NextResponse.json({
         created: 0,
         skipped: 0,
-        member,
+        members,
         tasks: [],
-        message: `No overdue tasks found for ${member.username}`,
+        notFound,
+        message: `No overdue tasks found for: ${rawNames}`,
       });
     }
 
-    // 2. Fetch existing links for this scope to avoid duplicates
+    // 2. Optionally clear existing links first
     const whereCondition = targetDeptId
       ? eq(teamTaskLinks.departmentId, targetDeptId)
       : isNull(teamTaskLinks.departmentId);
@@ -60,16 +64,15 @@ export async function POST(req: Request) {
       await db.delete(teamTaskLinks).where(whereCondition);
     }
 
+    // 3. Load existing links to avoid DB duplicates
     const existingLinks = await db.query.teamTaskLinks.findMany({
       where: whereCondition,
     });
 
-    // Normalize URLs to compare (matching task IDs)
     const existingUrlSet = new Set(
       existingLinks.map((l) => l.url.trim().toLowerCase())
     );
 
-    // Get current max sort_order
     const existingOrders = await db.query.teamTaskLinks.findMany({
       orderBy: (t, { desc }) => [desc(t.sortOrder)],
       limit: 1,
@@ -83,7 +86,7 @@ export async function POST(req: Request) {
       const formattedUrl = task.formattedUrl.trim();
       const rawUrl = task.url.trim();
 
-      // Check if already in DB under either format
+      // Deduplicate: check by full URL or task ID fragment
       const alreadyExists =
         existingUrlSet.has(formattedUrl.toLowerCase()) ||
         existingUrlSet.has(rawUrl.toLowerCase()) ||
@@ -110,9 +113,10 @@ export async function POST(req: Request) {
       success: true,
       created: createdCount,
       skipped: skippedCount,
-      totalFound: tasks.length,
-      member,
+      totalFound: totalCount,
+      members,
       tasks,
+      notFound,
     });
   });
 }
