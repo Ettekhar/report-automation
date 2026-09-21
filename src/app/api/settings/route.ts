@@ -15,7 +15,9 @@ import type { DB } from "@/db/client";
  *     turn this off so users must explicitly click "Save submission".
  */
 
-export const APP_SETTING_DEFAULTS: Record<string, unknown> = {
+// Module-level constant (not exported — Next.js route files may only export
+// HTTP handlers like GET/PUT). Kept private to this route.
+const APP_SETTING_DEFAULTS: Record<string, unknown> = {
   autoSaveOnGenerate: true,
 };
 
