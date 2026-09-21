@@ -48,6 +48,14 @@ export default function UserManager({
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // ClickUp Sync State
+  const [clickupMemberName, setClickupMemberName] = useState("sezan");
+  const [clickupLoading, setClickupLoading] = useState(false);
+  const [clickupPreview, setClickupPreview] = useState<{
+    member: { username: string; email: string };
+    tasks: { id: string; name: string; formattedUrl: string }[];
+  } | null>(null);
+
   // Filters & View State
   const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -216,6 +224,77 @@ export default function UserManager({
       setMsg({ type: "error", text: (err as Error).message });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch & Preview ClickUp Overdue tasks
+  const handleFetchClickUp = async () => {
+    if (!clickupMemberName.trim()) return;
+    setClickupLoading(true);
+    setMsg(null);
+    try {
+      const res = await fetch(
+        `/api/clickup/overdue?name=${encodeURIComponent(clickupMemberName.trim())}`
+      );
+      const data = (await res.json()) as {
+        error?: string;
+        member: { username: string; email: string };
+        tasks: { id: string; name: string; formattedUrl: string }[];
+        urls: string[];
+        count: number;
+      };
+      if (!res.ok) throw new Error(data.error || "Failed to fetch from ClickUp");
+
+      setClickupPreview({ member: data.member, tasks: data.tasks });
+      // Preload links into textarea
+      setNewLinkText(data.urls.join("\n"));
+      setMsg({
+        type: "success",
+        text: `Found ${data.count} overdue tasks for ${data.member.username}! Pre-filled links into box below.`,
+      });
+    } catch (err: unknown) {
+      setMsg({ type: "error", text: (err as Error).message });
+    } finally {
+      setClickupLoading(false);
+    }
+  };
+
+  // Direct 1-click sync & add ClickUp overdue links to database
+  const handleSyncClickUpDirect = async (replace = false) => {
+    if (!clickupMemberName.trim()) return;
+    setClickupLoading(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/clickup/overdue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: clickupMemberName.trim(),
+          replaceExisting: replace,
+        }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        created?: number;
+        skipped?: number;
+        member?: { username: string };
+      };
+      if (!res.ok) throw new Error(data.error || "Failed to sync from ClickUp");
+
+      // Refresh list
+      const ref = await fetch("/api/team-links");
+      const refData = (await ref.json()) as TeamLink[];
+      setLinks(refData);
+      setNewLinkText("");
+      setClickupPreview(null);
+      setMsg({
+        type: "success",
+        text: `Synced ClickUp overdue tasks for ${data.member?.username}: ${data.created} added, ${data.skipped} already present.`,
+      });
+    } catch (err: unknown) {
+      setMsg({ type: "error", text: (err as Error).message });
+    } finally {
+      setClickupLoading(false);
     }
   };
 
@@ -905,6 +984,98 @@ export default function UserManager({
                 </button>
               </div>
             ))
+          )}
+        </div>
+
+        {/* Dynamic ClickUp Overdue Sync Panel */}
+        <div
+          className="card-sm"
+          style={{
+            marginBottom: "1rem",
+            background: "rgba(56, 141, 60, 0.05)",
+            border: "1px solid rgba(56, 141, 60, 0.25)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+            <span style={{ fontSize: "0.85rem", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+              <span>⚡</span> Dynamic ClickUp Overdue Sync
+            </span>
+            <span style={{ fontSize: "0.72rem", color: "#64748b" }}>Workspace: Cogwheel Marketing</span>
+          </div>
+          <p style={{ fontSize: "0.78rem", color: "#64748b", margin: "0 0 0.75rem 0" }}>
+            Extract active overdue tasks from ClickUp by member name and dynamically sync their links to member report forms.
+          </p>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <input
+              type="text"
+              className="input"
+              style={{ maxWidth: 200, fontSize: "0.85rem" }}
+              placeholder="e.g. sezan, rifat, ovi..."
+              value={clickupMemberName}
+              onChange={(e) => setClickupMemberName(e.target.value)}
+              disabled={clickupLoading}
+            />
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => handleSyncClickUpDirect(false)}
+              disabled={clickupLoading || !clickupMemberName.trim()}
+              title="Add overdue tasks from ClickUp (skips already added links)"
+            >
+              {clickupLoading ? "⏳ Syncing..." : "⚡ Sync Overdue Links"}
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={handleFetchClickUp}
+              disabled={clickupLoading || !clickupMemberName.trim()}
+              title="Inspect tasks in ClickUp and load links into the box below"
+            >
+              🔍 Preview Tasks
+            </button>
+            {links.length > 0 && (
+              <button
+                className="btn btn-danger btn-sm"
+                onClick={() => {
+                  if (confirm("Replace all existing task links with freshly fetched ClickUp overdue tasks?")) {
+                    handleSyncClickUpDirect(true);
+                  }
+                }}
+                disabled={clickupLoading || !clickupMemberName.trim()}
+                title="Replace all existing links with the current overdue links"
+              >
+                🔄 Replace All Links
+              </button>
+            )}
+          </div>
+
+          {clickupPreview && clickupPreview.tasks && (
+            <div
+              style={{
+                marginTop: "0.75rem",
+                padding: "0.6rem 0.75rem",
+                background: "var(--color-surface-2)",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              <p style={{ fontSize: "0.78rem", fontWeight: 600, margin: "0 0 0.4rem 0" }}>
+                Found {clickupPreview.tasks.length} Overdue Tasks for {clickupPreview.member.username} ({clickupPreview.member.email}):
+              </p>
+              {clickupPreview.tasks.length === 0 ? (
+                <p style={{ fontSize: "0.75rem", color: "#64748b", margin: 0 }}>🎉 No overdue tasks!</p>
+              ) : (
+                <ul style={{ margin: 0, paddingLeft: "1.2rem", fontSize: "0.75rem", color: "#475569" }}>
+                  {clickupPreview.tasks.map((t) => (
+                    <li key={t.id} style={{ marginBottom: 4 }}>
+                      <strong>{t.name}</strong> —{" "}
+                      <a href={t.formattedUrl} target="_blank" rel="noopener noreferrer" style={{ wordBreak: "break-all" }}>
+                        {t.formattedUrl}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </div>
 
