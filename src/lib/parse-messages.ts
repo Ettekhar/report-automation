@@ -21,6 +21,13 @@ export interface StatusCounts {
   /** Sum of "Maintenance - N Completed" across all message blocks. */
   maintenanceTotal: number;
   /**
+   * True when the pasted text indicates maintenance is currently running —
+   * either explicit phrasing ("Maintenance is on-going", "ongoing",
+   * "running", "started", "in progress") or any "Maintenance - N Completed"
+   * line (a completion line means the work is on-going, even with N = 0).
+   */
+  maintenanceOngoing: boolean;
+  /**
    * URLs that were explicitly marked as completed by a team member.
    * A URL qualifies when it appears on the same line as, or immediately after,
    * a "completed / done" keyword — AND is NOT associated with an "in review"
@@ -60,6 +67,13 @@ export function parseMessages(raw: string): MessageBlock[] {
 // ---------------------------------------------------------------------------
 const SEP = "[\\s:.\\-]*";
 
+/**
+ * "completed / complete / completing / completion / completes" — full-word
+ * match. The old `comp[a-z]{0,6}` was too loose: it read "GA4 complect" as
+ * "4 completed" (digit "4" in "GA4" + any word merely STARTING with "comp").
+ */
+const DONE_WORD = "comp(?:leted?|leting|letion)s?";
+
 const PATTERNS = {
   review: [
     new RegExp(`\\bre[a-z]{0,3}v[a-z]{0,3}iew${SEP}(\\d+)`, "i"),
@@ -70,8 +84,12 @@ const PATTERNS = {
     new RegExp(`(\\d+)${SEP}\\bprog[a-z]{0,4}`, "i"),
   ],
   done: [
-    new RegExp(`\\bcomp[a-z]{0,6}${SEP}(\\d+)`, "i"),
-    new RegExp(`(\\d+)${SEP}\\bcomp[a-z]{0,6}`, "i"),
+    // "completed - 4" / "completed 4"
+    new RegExp(`\\b${DONE_WORD}${SEP}(\\d+)`, "i"),
+    // "4 completed" — the number must be a standalone count (word-boundary or
+    // line start), so "GA4 complect" / "Site2 complete" can NEVER match.
+    new RegExp(`(?:^|\\b)(\\d+)${SEP}\\b${DONE_WORD}`, "i"),
+    // "done - 4"
     new RegExp(`\\bdone${SEP}(\\d+)`, "i"),
   ],
   overdueDep: [
@@ -126,6 +144,30 @@ export function extractMaintenanceCount(blocks: MessageBlock[]): number {
   return sumField(blocks, PATTERNS.maintenance);
 }
 
+/**
+ * True when the pasted text indicates maintenance is currently running.
+ *
+ * Detects either:
+ *   - explicit ongoing phrasing: "Maintenance is on-going", "ongoing",
+ *     "running", "started", "in progress", "still on", etc.
+ *   - any "Maintenance - N Completed"/"Maintenance completed - N" line
+ *     (per PATTERNS.maintenance) — a completion line means the work is
+ *     on-going even when N = 0.
+ */
+export function extractMaintenanceOngoing(blocks: MessageBlock[]): boolean {
+  const ONGOING_RE =
+    /\b(?:is|are|was|were)\s+(?:still\s+)?(?:on[\s-]?going|running|started|in[\s-]?progress|underway)\b|\bmaintenance\b[^\n]*\b(?:on[\s-]?going|running|started|in[\s-]?progress|underway)\b/i;
+
+  for (const b of blocks) {
+    const lines = b.text.split(/\r?\n/);
+    for (const line of lines) {
+      if (ONGOING_RE.test(line)) return true;
+      if (PATTERNS.maintenance.some((p) => p.test(line))) return true;
+    }
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Completed-task link extractor
 // ---------------------------------------------------------------------------
@@ -159,7 +201,8 @@ export function extractCompletedLinks(blocks: MessageBlock[]): string[] {
 
       // Check whether this line contains a "completed / done" keyword
       const hasDoneKeyword =
-        /\bcomp[a-z]*\b/i.test(lineLower) || /\bdone\b/i.test(lineLower);
+        new RegExp(`\\b${DONE_WORD}\\b`, "i").test(lineLower) ||
+        /\bdone\b/i.test(lineLower);
 
       if (hasDoneKeyword) {
         // 1. Collect URLs on this same line
@@ -218,6 +261,7 @@ export function extractStatusCounts(blocks: MessageBlock[]): StatusCounts {
     overdueDependencies: sumField(blocks, PATTERNS.overdueDep),
     overdue: sumField(blocks, PATTERNS.overdue),
     maintenanceTotal: extractMaintenanceCount(blocks),
+    maintenanceOngoing: extractMaintenanceOngoing(blocks),
     completedLinks: extractCompletedLinks(blocks),
   };
 }

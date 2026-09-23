@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { parseMessages, extractStatusCounts, extractLinks } from "@/lib/parse-messages";
 import { generateReport } from "@/lib/report-formatter";
 import type { ReportInput } from "@/lib/report-formatter";
 
-interface TeamLink { id: string; url: string; sortOrder: number; }
+interface TeamLink { id: string; url: string; name?: string | null; sortOrder: number; }
 
 interface Props {
   reportDate: string;
@@ -44,6 +44,7 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
   const [rawText, setRawText] = useState(existingSubmission?.rawWhatsappText ?? "");
   const [parsedLinks, setParsedLinks] = useState<string[]>([]);
   const [teamLinks, setTeamLinks] = useState<TeamLink[]>([]);
+  const [teamLinksLoaded, setTeamLinksLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [report, setReport] = useState(existingSubmission?.finalReport ?? "");
@@ -79,13 +80,25 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
     maintenanceTotal: initRaw.maintenanceTotal ?? "",
   });
 
-  // Load team links
+  // Load team links — refetchable so report generation always uses them,
+  // even if the user hits "Generate" before this initial fetch resolves.
+  const loadTeamLinks = useCallback(async (): Promise<TeamLink[]> => {
+    try {
+      const res = await fetch("/api/team-links");
+      const data: unknown = await res.json();
+      const links = Array.isArray(data) ? (data as TeamLink[]) : [];
+      setTeamLinks(links);
+      setTeamLinksLoaded(true);
+      return links;
+    } catch {
+      setTeamLinksLoaded(true);
+      return teamLinks;
+    }
+  }, [teamLinks]);
+
   useEffect(() => {
-    fetch("/api/team-links")
-      .then((r) => r.json())
-      .then((data: unknown) => setTeamLinks(Array.isArray(data) ? (data as TeamLink[]) : []))
-      .catch(() => {});
-  }, []);
+    void loadTeamLinks();
+  }, [loadTeamLinks]);
 
   // Load the superadmin-controlled auto-save-on-generate setting
   useEffect(() => {
@@ -129,7 +142,9 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
       tomorrowCount: counts.inProgress,
       tasksDoneLinks: doneLinksStr,
       maintenanceEnabled:
-        counts.maintenanceTotal > 0 ? true : f.maintenanceEnabled,
+        counts.maintenanceTotal > 0 || counts.maintenanceOngoing
+          ? true
+          : f.maintenanceEnabled,
       maintenanceTotal:
         counts.maintenanceTotal > 0
           ? counts.maintenanceTotal
@@ -143,7 +158,7 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
   }
 
   // ── Report builder ─────────────────────────────────────────────────────────
-  function buildInput(): ReportInput {
+  function buildInput(links: TeamLink[] = teamLinks): ReportInput {
     const doneLinks = (fields.tasksDoneLinks as string)
       .split(/[\r\n]+/)
       .map((u) => u.trim())
@@ -168,14 +183,18 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
       overdueDependencies: Number(fields.overdueDependencies),
       overdueDepNote: fields.overdueDepNote || null,
       tomorrowCount: fields.tomorrowCount !== "" ? Number(fields.tomorrowCount) : null,
-      teamTaskLinks: teamLinks.map((l) => l.url),
+      teamTaskLinks: links.map((l) => ({ url: l.url, name: l.name ?? null })),
       maintenanceEnabled: fields.maintenanceEnabled,
       maintenanceTotal: fields.maintenanceTotal !== "" ? Number(fields.maintenanceTotal) : null,
     };
   }
 
-  function generatePreview() {
-    const preview = generateReport(buildInput());
+  async function generatePreview() {
+    // Ensure team links are loaded before building the report — otherwise a
+    // fast "Generate" click could produce a report with an empty team-links
+    // section (the links load asynchronously on mount).
+    const links = teamLinksLoaded ? teamLinks : await loadTeamLinks();
+    const preview = generateReport(buildInput(links));
     setReport(preview);
     setReportEdited(false);
     setStep("preview");
@@ -451,6 +470,9 @@ export default function SubmissionForm({ reportDate, isAdmin, existingSubmission
               teamLinks.map((l) => (
                 <div key={l.id} style={{ fontSize: "0.78rem", padding: "2px 0" }}>
                   <a href={l.url} target="_blank" rel="noopener noreferrer" style={{ wordBreak: "break-all" }}>{l.url}</a>
+                  {l.name && (
+                    <span style={{ fontWeight: 600 }}> ({l.name})</span>
+                  )}
                 </div>
               ))
             )}

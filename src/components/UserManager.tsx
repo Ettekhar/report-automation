@@ -23,6 +23,7 @@ interface UserItem {
 interface TeamLink {
   id: string;
   url: string;
+  name?: string | null;
   sortOrder: number;
 }
 
@@ -984,14 +985,21 @@ export default function UserManager({
                   gap: 8,
                 }}
               >
-                <a
-                  href={l.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ fontSize: "0.85rem", wordBreak: "break-all" }}
-                >
-                  {l.url}
-                </a>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 0 }}>
+                  {l.name ? (
+                    <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>
+                      {l.name}
+                    </span>
+                  ) : null}
+                  <a
+                    href={l.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ fontSize: "0.85rem", wordBreak: "break-all" }}
+                  >
+                    {l.url}
+                  </a>
+                </div>
                 <button
                   className="btn btn-danger btn-sm"
                   style={{ flexShrink: 0 }}

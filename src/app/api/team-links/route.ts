@@ -3,6 +3,7 @@ import { requireSession, getRequestDeps, withErrorHandling } from "@/lib/api-hel
 import { requirePermission } from "@/lib/permissions";
 import { teamTaskLinks } from "@/db/schema";
 import { eq, or, isNull } from "drizzle-orm";
+import { fetchClickUpTaskName } from "@/lib/clickup";
 
 // GET /api/team-links — return department-specific task links
 export async function GET(req: Request) {
@@ -61,16 +62,22 @@ export async function POST(req: Request) {
     let nextOrder = (existing[0]?.sortOrder ?? -1) + 1;
 
     const urlList: string[] = body.urls ?? (body.url ? [body.url] : []);
-    const rows = urlList
-      .map((u) => u.trim())
-      .filter(Boolean)
-      .map((url) => ({
+    const rows = [];
+    for (const u of urlList) {
+      const url = u.trim();
+      if (!url) continue;
+      // Enrich manually-pasted links with their ClickUp task title so keyword
+      // classification works even for links that were never synced.
+      const name = await fetchClickUpTaskName(url);
+      rows.push({
         id: crypto.randomUUID(),
         url,
+        name,
         sortOrder: nextOrder++,
         addedBy: session.userId,
         departmentId: targetDeptId,
-      }));
+      });
+    }
 
     for (const row of rows) {
       await db.insert(teamTaskLinks).values(row).onConflictDoNothing();

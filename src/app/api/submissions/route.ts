@@ -127,16 +127,20 @@ export async function POST(req: Request) {
     const body = (await req.json()) as PostSubmissionBody;
     const { db } = await getRequestDeps();
 
-    // Fetch department task links (or global links) for report generation
-    const linkConditions = session.userDepartmentId
-      ? or(eq(teamTaskLinks.departmentId, session.userDepartmentId), isNull(teamTaskLinks.departmentId))
-      : isNull(teamTaskLinks.departmentId);
+    // Fetch team links for report generation — scope must match GET /api/team-links:
+    // superadmin sees ALL links (global + every department); other users see
+    // their own department's links plus global links.
+    const linkConditions = session.userRole === "superadmin"
+      ? undefined
+      : session.userDepartmentId
+        ? or(eq(teamTaskLinks.departmentId, session.userDepartmentId), isNull(teamTaskLinks.departmentId))
+        : isNull(teamTaskLinks.departmentId);
 
     const links = await db.query.teamTaskLinks.findMany({
       where: linkConditions,
       orderBy: (t, { asc }) => [asc(t.sortOrder)],
     });
-    const teamLinks = links.map((l) => l.url);
+    const teamLinks = links.map((l) => ({ url: l.url, name: l.name ?? null }));
 
     const input: ReportInput = {
       date: body.date,

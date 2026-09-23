@@ -103,6 +103,8 @@ export const verifications = sqliteTable("verification", {
 export const teamTaskLinks = sqliteTable("team_task_links", {
   id: text("id").primaryKey(),
   url: text("url").notNull(),
+  /** ClickUp task title captured at sync time — used for keyword classification */
+  name: text("name"),
   sortOrder: integer("sort_order").notNull().default(0),
   addedBy: text("added_by").references(() => users.id, {
     onDelete: "set null",

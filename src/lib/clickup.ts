@@ -176,6 +176,31 @@ export async function fetchClickUpOverdueTasks(
 }
 
 /**
+ * Resolve a ClickUp task title from a task URL or short id.
+ * Returns null when the API call fails or the id cannot be extracted.
+ * Used to enrich manually-pasted links with their task title.
+ */
+export async function fetchClickUpTaskName(
+  raw: string,
+  apiKey?: string,
+  teamId?: string
+): Promise<string | null> {
+  try {
+    const headers = getClickUpHeaders(apiKey);
+    // Extract the short task id: .../t/10554421/868j7v43c  or  .../t/868j7v43c
+    const match = raw.trim().match(/\/t\/(?:\d+\/)?([A-Za-z0-9]+)(?:[\/?#].*)?$/);
+    if (!match) return null;
+    const taskId = match[1];
+    const res = await fetch(`https://api.clickup.com/api/v2/task/${taskId}`, { headers });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { name?: string };
+    return data.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetch overdue tasks for multiple team members (comma/newline-separated names).
  * Deduplicates tasks by task ID — if sezan and taion share a task, it only appears once.
  */

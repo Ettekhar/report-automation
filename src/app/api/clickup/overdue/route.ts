@@ -102,6 +102,7 @@ export async function POST(req: Request) {
         .values({
           id: crypto.randomUUID(),
           url: formattedUrl,
+          name: task.name ?? null,
           sortOrder: nextOrder++,
           addedBy: session.userId,
           departmentId: targetDeptId,

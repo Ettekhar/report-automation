@@ -34,6 +34,18 @@ export const REPORT_CONFIG = {
 
   /** Closing suffix after the tomorrow count */
   tomorrowSuffix: "(We will work on these tasks tomorrow)",
+
+  /**
+   * Keywords used to classify a ClickUp task title as a development task.
+   * A task counts toward "Total {n} development task" when its title contains
+   * any of these (case-insensitive, single words match on word boundaries).
+   */
+  developmentKeywords: [
+    "build", "development", "dev", "homepage", "home page", "website",
+    "web", "wordpress", "design", "site", "microsite", "frontend",
+    "backend", "landing", "code", "coding", "theme", "plugin", "app",
+    "ui", "ux",
+  ],
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -58,8 +70,11 @@ export interface ReportInput {
   overdueDependencies: number;
   overdueDepNote?: string | null;
   tomorrowCount?: number | null;
-  /** The shared team dev task links (overdue dependency section) */
-  teamTaskLinks: string[];
+  /**
+   * The shared team dev task links (overdue dependency section), each carrying
+   * the ClickUp task title captured at sync time for keyword classification.
+   */
+  teamTaskLinks: Array<{ url: string; name?: string | null }>;
   /** Whether maintenance is currently running (toggle ON/OFF) */
   maintenanceEnabled?: boolean;
   /** Running total of maintenance tasks completed today */
@@ -80,6 +95,24 @@ function formatDateLabel(iso: string): string {
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
   ];
   return `${d} ${months[parseInt(m, 10) - 1]} ${y}`;
+}
+
+/**
+ * Keyword-classify a ClickUp task title as a development task.
+ * - A task with no title at all (legacy/manual links) counts as dev so it is
+ *   never silently dropped from the report.
+ * - Single-word keywords match on word boundaries; multi-word keywords match
+ *   as plain substrings. Matching is case-insensitive.
+ */
+export function isDevelopmentTask(title: string | null | undefined): boolean {
+  if (!title) return true;
+  const t = title.toLowerCase();
+  return REPORT_CONFIG.developmentKeywords.some((kw) => {
+    if (kw.includes(" ")) return t.includes(kw.toLowerCase());
+    return new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(
+      t
+    );
+  });
 }
 
 /**
@@ -144,16 +177,31 @@ export function generateReport(input: ReportInput): string {
 
   lines.push("");
 
+  // The dependencies count is derived from the actual linked tasks so the
+  // number always matches the list below. Falls back to the typed value when
+  // no links are configured (e.g. departments with no task links yet).
+  const depsCount =
+    input.teamTaskLinks.length > 0
+      ? input.teamTaskLinks.length
+      : input.overdueDependencies;
   const depLine =
-    `${cfg.labels.overdueDependencies} = ${pad(input.overdueDependencies, z)}` +
+    `${cfg.labels.overdueDependencies} = ${pad(depsCount, z)}` +
     (input.overdueDepNote ? ` ${input.overdueDepNote}` : "");
   lines.push(depLine);
 
   // ── Team dev task links ────────────────────────────────────────────────
+  // The label counts only development-classified tasks, but the list below
+  // shows ALL overdue task links (dev + non-dev) so nothing is hidden.
+  const devCount = input.teamTaskLinks.filter((l) =>
+    isDevelopmentTask(l.name)
+  ).length;
   const linkCount = input.teamTaskLinks.length;
-  lines.push(cfg.labels.teamLinks.replace("{n}", String(linkCount)));
+  lines.push(cfg.labels.teamLinks.replace("{n}", String(devCount)));
   if (linkCount > 0) {
-    lines.push(...input.teamTaskLinks);
+    input.teamTaskLinks.forEach((l) => {
+      const label = l.name ? `${l.url} — (${l.name})` : l.url;
+      lines.push(label);
+    });
   }
 
   lines.push("");

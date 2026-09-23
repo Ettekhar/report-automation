@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireSession, getRequestDeps, withErrorHandling } from "@/lib/api-helpers";
 import { requirePermission, can } from "@/lib/permissions";
-import { submissions, submissionEdits } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { submissions, submissionEdits, teamTaskLinks } from "@/db/schema";
+import { eq, or, isNull } from "drizzle-orm";
 import { generateReport, type ReportInput } from "@/lib/report-formatter";
 import { isWithinEditCutoff } from "@/lib/timezone";
 
@@ -110,11 +110,20 @@ export async function PATCH(
       changeNote: body.changeNote ?? null,
     });
 
-    // Fetch team links for regenerating the report
+    // Fetch team links for regenerating the report — scope must match
+    // GET /api/team-links: superadmin sees ALL links (global + every
+    // department); other users see their own department's + global links.
+    const linkConditions = session.userRole === "superadmin"
+      ? undefined
+      : session.userDepartmentId
+        ? or(eq(teamTaskLinks.departmentId, session.userDepartmentId), isNull(teamTaskLinks.departmentId))
+        : isNull(teamTaskLinks.departmentId);
+
     const links = await db.query.teamTaskLinks.findMany({
+      where: linkConditions,
       orderBy: (t, { asc }) => [asc(t.sortOrder)],
     });
-    const teamLinks = links.map((l) => l.url);
+    const teamLinks = links.map((l) => ({ url: l.url, name: l.name ?? null }));
 
     // Resolve maintenance values: prefer body values, fall back to stored rawInput
     let storedRaw: Record<string, unknown> = {};
