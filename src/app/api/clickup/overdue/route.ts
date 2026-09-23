@@ -55,7 +55,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // 2. Optionally clear existing links first
+    // 2. Optionally clear existing links in the target scope first
     const whereCondition = targetDeptId
       ? eq(teamTaskLinks.departmentId, targetDeptId)
       : isNull(teamTaskLinks.departmentId);
@@ -64,10 +64,10 @@ export async function POST(req: Request) {
       await db.delete(teamTaskLinks).where(whereCondition);
     }
 
-    // 3. Load existing links to avoid DB duplicates
-    const existingLinks = await db.query.teamTaskLinks.findMany({
-      where: whereCondition,
-    });
+    // 3. Load ALL existing links for dedup — team_task_links.url is globally
+    //    UNIQUE, so a URL owned by another scope would otherwise violate the
+    //    constraint on insert. Dedup across every scope to avoid 500s.
+    const existingLinks = await db.query.teamTaskLinks.findMany();
 
     const existingUrlSet = new Set(
       existingLinks.map((l) => l.url.trim().toLowerCase())
@@ -97,13 +97,16 @@ export async function POST(req: Request) {
         continue;
       }
 
-      await db.insert(teamTaskLinks).values({
-        id: crypto.randomUUID(),
-        url: formattedUrl,
-        sortOrder: nextOrder++,
-        addedBy: session.userId,
-        departmentId: targetDeptId,
-      });
+      await db
+        .insert(teamTaskLinks)
+        .values({
+          id: crypto.randomUUID(),
+          url: formattedUrl,
+          sortOrder: nextOrder++,
+          addedBy: session.userId,
+          departmentId: targetDeptId,
+        })
+        .onConflictDoNothing();
 
       existingUrlSet.add(formattedUrl.toLowerCase());
       createdCount++;
