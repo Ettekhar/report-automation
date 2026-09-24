@@ -106,6 +106,9 @@ export default async function AdminPage() {
   const assignedCount = members.filter((u) => assignedTodayIds.has(u.id)).length;
   const submittedCount = members.filter((u) => submittedTodayIds.has(u.id)).length;
 
+  // Per-user today's submission (for status table columns)
+  const subByUser = new Map(actualTodaySubs.map((s) => [s.userId, s]));
+
   return (
     <div className="page-container fade-in">
       <div style={{ marginBottom: "1.5rem" }}>
@@ -147,30 +150,57 @@ export default async function AdminPage() {
                 <th>Role</th>
                 <th>Assigned</th>
                 <th>Submitted</th>
+                <th>Done</th>
+                <th>Review</th>
+                <th>Progress</th>
+                <th>Overdue</th>
               </tr>
             </thead>
             <tbody>
-              {allUsers.map((u) => (
-                <tr key={u.id}>
-                  <td>
-                    <div style={{ fontWeight: 500 }}>{u.name}</div>
-                    <div style={{ fontSize: "0.75rem", color: "#64748b" }}>{u.email}</div>
-                  </td>
-                  <td><span className={`badge badge-${u.role}`}>{u.role}</span></td>
-                  <td>
-                    {assignedTodayIds.has(u.id)
-                      ? <span className="badge badge-info">Yes</span>
-                      : <span className="badge badge-muted">—</span>}
-                  </td>
-                  <td>
-                    {submittedTodayIds.has(u.id)
-                      ? <span className="badge badge-success">✓ Submitted</span>
-                      : assignedTodayIds.has(u.id)
-                        ? <span className="badge badge-danger">Missing</span>
+              {allUsers.map((u) => {
+                const sub = subByUser.get(u.id);
+                return (
+                  <tr key={u.id}>
+                    <td>
+                      <div style={{ fontWeight: 500 }}>{u.name}</div>
+                      <div style={{ fontSize: "0.75rem", color: "#64748b" }}>{u.email}</div>
+                    </td>
+                    <td><span className={`badge badge-${u.role}`}>{u.role}</span></td>
+                    <td>
+                      {assignedTodayIds.has(u.id)
+                        ? <span className="badge badge-info">Yes</span>
                         : <span className="badge badge-muted">—</span>}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td>
+                      {submittedTodayIds.has(u.id)
+                        ? <span className="badge badge-success">✓ Submitted</span>
+                        : assignedTodayIds.has(u.id)
+                          ? <span className="badge badge-danger">Missing</span>
+                          : <span className="badge badge-muted">—</span>}
+                    </td>
+                    <td>
+                      {sub
+                        ? <span className="badge badge-success">{sub.tasksDone}</span>
+                        : <span className="badge badge-muted">—</span>}
+                    </td>
+                    <td>
+                      {sub
+                        ? <span className="badge badge-warning">{sub.inReview}</span>
+                        : <span className="badge badge-muted">—</span>}
+                    </td>
+                    <td>
+                      {sub
+                        ? <span className="badge badge-info">{sub.inProgress}</span>
+                        : <span className="badge badge-muted">—</span>}
+                    </td>
+                    <td>
+                      {sub && sub.overdueTasks > 0
+                        ? <span className="badge badge-danger">{sub.overdueTasks}</span>
+                        : <span className="badge badge-muted">—</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

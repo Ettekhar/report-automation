@@ -119,7 +119,7 @@ export function isDevelopmentTask(title: string | null | undefined): boolean {
  * Resolve the unified done-links array from either `tasksDoneLinks`
  * (new) or the legacy `tasksDoneLink` string.
  */
-function resolveDoneLinks(input: ReportInput): string[] {
+export function resolveDoneLinks(input: ReportInput): string[] {
   if (input.tasksDoneLinks && input.tasksDoneLinks.length > 0) {
     return input.tasksDoneLinks.flatMap((s) =>
       s.split(/[\r\n]+/).map((u) => u.trim()).filter(Boolean)
@@ -132,6 +132,19 @@ function resolveDoneLinks(input: ReportInput): string[] {
       .filter(Boolean);
   }
   return [];
+}
+
+/**
+ * The dependencies count derivation used by the report:
+ * derived from the actual linked tasks so the number always matches the
+ * list, falling back to the typed value when no links are configured.
+ * Shared with the submission store routes so the saved DB column matches
+ * the generated report text.
+ */
+export function deriveDependenciesCount(input: ReportInput): number {
+  return input.teamTaskLinks.length > 0
+    ? input.teamTaskLinks.length
+    : input.overdueDependencies;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,10 +193,7 @@ export function generateReport(input: ReportInput): string {
   // The dependencies count is derived from the actual linked tasks so the
   // number always matches the list below. Falls back to the typed value when
   // no links are configured (e.g. departments with no task links yet).
-  const depsCount =
-    input.teamTaskLinks.length > 0
-      ? input.teamTaskLinks.length
-      : input.overdueDependencies;
+  const depsCount = deriveDependenciesCount(input);
   const depLine =
     `${cfg.labels.overdueDependencies} = ${pad(depsCount, z)}` +
     (input.overdueDepNote ? ` ${input.overdueDepNote}` : "");

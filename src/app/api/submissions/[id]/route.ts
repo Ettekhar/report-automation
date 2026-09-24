@@ -3,7 +3,7 @@ import { requireSession, getRequestDeps, withErrorHandling } from "@/lib/api-hel
 import { requirePermission, can } from "@/lib/permissions";
 import { submissions, submissionEdits, teamTaskLinks } from "@/db/schema";
 import { eq, or, isNull } from "drizzle-orm";
-import { generateReport, type ReportInput } from "@/lib/report-formatter";
+import { generateReport, deriveDependenciesCount, type ReportInput } from "@/lib/report-formatter";
 import { isWithinEditCutoff } from "@/lib/timezone";
 
 // ---------------------------------------------------------------------------
@@ -154,10 +154,18 @@ export async function PATCH(
 
     const finalReport = body.finalReport ?? generateReport(input);
 
+    // When the report is regenerated, store the derived dependencies count so
+    // the DB column matches the report text. Manual text overrides keep the
+    // typed/previous value (admin edited the text by hand).
+    const storedDepCount = body.finalReport
+      ? input.overdueDependencies
+      : deriveDependenciesCount(input);
+
     await db
       .update(submissions)
       .set({
         ...input,
+        overdueDependencies: storedDepCount,
         rawInput: JSON.stringify({ ...storedRaw, ...body }),
         finalReport,
         editedBy: session.userId,

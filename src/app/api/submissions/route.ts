@@ -3,7 +3,7 @@ import { requireSession, getRequestDeps, withErrorHandling } from "@/lib/api-hel
 import { requirePermission } from "@/lib/permissions";
 import { submissions, teamTaskLinks, users } from "@/db/schema";
 import { eq, desc, and, or, isNull, inArray } from "drizzle-orm";
-import { generateReport, type ReportInput } from "@/lib/report-formatter";
+import { generateReport, deriveDependenciesCount, type ReportInput } from "@/lib/report-formatter";
 import type { Role } from "@/lib/permissions";
 
 // ---------------------------------------------------------------------------
@@ -174,7 +174,8 @@ export async function POST(req: Request) {
       inReview: input.inReview,
       inProgress: input.inProgress,
       overdueTasks: input.overdueTasks,
-      overdueDependencies: input.overdueDependencies,
+      // Store the derived count so the DB column always matches the report text
+      overdueDependencies: deriveDependenciesCount(input),
       overdueDepNote: input.overdueDepNote,
       tomorrowCount: input.tomorrowCount,
       finalReport,
