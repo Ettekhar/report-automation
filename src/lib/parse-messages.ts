@@ -103,12 +103,15 @@ const PATTERNS = {
   ],
   /**
    * Matches "Maintenance - N Completed" / "Maintenances - N completed" / "Maintenance completed - N", etc.
+   * Also matches "Maintenance - N" (no "completed" keyword) and "Maintenance - \nN Completed" (number on next line).
    */
   maintenance: [
     new RegExp(`mainten[a-z]{0,5}${SEP}(\\d+)${SEP}comp[a-z]{0,6}`, "i"),
     new RegExp(`mainten[a-z]{0,5}${SEP}comp[a-z]{0,6}${SEP}(\\d+)`, "i"),
     new RegExp(`comp[a-z]{0,6}${SEP}(\\d+)${SEP}mainten[a-z]{0,5}`, "i"),
     new RegExp(`comp[a-z]{0,6}${SEP}mainten[a-z]{0,5}${SEP}(\\d+)`, "i"),
+    // "Maintenance - N" (no "completed" keyword, just a number)
+    new RegExp(`mainten[a-z]{0,5}${SEP}(\\d+)(?:${SEP}[,.]|[,.]|$)`, "i"),
   ],
 };
 
@@ -138,10 +141,51 @@ function sumField(
 }
 
 // ---------------------------------------------------------------------------
+// Maintenance helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Pre-processes message text to merge "Maintenance -" lines with the next line
+ * when the next line starts with a digit. This handles the common WhatsApp
+ * format where the maintenance count is on a separate line:
+ *
+ *   Maintenance -
+ *   1 Completed, 1 in progress
+ *
+ * becomes:
+ *
+ *   Maintenance - 1 Completed, 1 in progress
+ */
+function preprocessMaintenanceLines(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const merged: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    // Check if this line is just "Maintenance -" (no number on this line)
+    // and the next line starts with a digit
+    if (
+      i + 1 < lines.length &&
+      /^mainten[a-z]*[\s:.\-]*$/i.test(trimmed) &&
+      /^\d/.test(lines[i + 1].trim())
+    ) {
+      merged.push(trimmed + " " + lines[i + 1].trim());
+      i++; // skip the next line since we merged it
+    } else {
+      merged.push(lines[i]);
+    }
+  }
+  return merged.join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // Maintenance count extractor
 // ---------------------------------------------------------------------------
 export function extractMaintenanceCount(blocks: MessageBlock[]): number {
-  return sumField(blocks, PATTERNS.maintenance);
+  const processedBlocks = blocks.map((b) => ({
+    ...b,
+    text: preprocessMaintenanceLines(b.text),
+  }));
+  return sumField(processedBlocks, PATTERNS.maintenance);
 }
 
 /**
@@ -159,7 +203,8 @@ export function extractMaintenanceOngoing(blocks: MessageBlock[]): boolean {
     /\b(?:is|are|was|were)\s+(?:still\s+)?(?:on[\s-]?going|running|started|in[\s-]?progress|underway)\b|\bmaintenance\b[^\n]*\b(?:on[\s-]?going|running|started|in[\s-]?progress|underway)\b/i;
 
   for (const b of blocks) {
-    const lines = b.text.split(/\r?\n/);
+    const text = preprocessMaintenanceLines(b.text);
+    const lines = text.split(/\r?\n/);
     for (const line of lines) {
       if (ONGOING_RE.test(line)) return true;
       if (PATTERNS.maintenance.some((p) => p.test(line))) return true;
