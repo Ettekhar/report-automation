@@ -74,6 +74,24 @@ const SEP = "[\\s:.\\-]*";
  */
 const DONE_WORD = "comp(?:leted?|leting|letion)s?";
 
+/**
+ * "maintenance" / "maintenances" — but tolerant of the very common WhatsApp
+ * typos where letters get transposed or doubled:
+ *   • "mainteance"   (n/a swapped)     — the typo this team actually types
+ *   • "maintanence"  (e/a swapped)
+ *   • "maintainance" / "maintainence"  (doubled "ai")
+ *   • "maintanance"  (dropped letter)
+ *
+ * `maint[a-z]{1,8}(?![a-z])` consumes the ENTIRE garbled word (greedy, then
+ * backtracks) and the negative lookahead forces the match to end on a
+ * non-letter — so it matches the whole misspelling without swallowing the
+ * separator that follows, and never half-matches an unrelated word.
+ */
+const MAINT_WORD = "maint[a-z]{1,8}(?![a-z])";
+
+/** Word-boundary-wrapped maintenance matcher, used as a skip guard. */
+const MAINT_SKIP_RE = new RegExp(`\\b${MAINT_WORD}`, "i");
+
 const PATTERNS = {
   review: [
     new RegExp(`\\bre[a-z]{0,3}v[a-z]{0,3}iew${SEP}(\\d+)`, "i"),
@@ -104,14 +122,15 @@ const PATTERNS = {
   /**
    * Matches "Maintenance - N Completed" / "Maintenances - N completed" / "Maintenance completed - N", etc.
    * Also matches "Maintenance - N" (no "completed" keyword) and "Maintenance - \nN Completed" (number on next line).
+   * Tolerates common typos: "mainteance", "maintanence", "maintainance".
    */
   maintenance: [
-    new RegExp(`mainten[a-z]{0,5}${SEP}(\\d+)${SEP}comp[a-z]{0,6}`, "i"),
-    new RegExp(`mainten[a-z]{0,5}${SEP}comp[a-z]{0,6}${SEP}(\\d+)`, "i"),
-    new RegExp(`comp[a-z]{0,6}${SEP}(\\d+)${SEP}mainten[a-z]{0,5}`, "i"),
-    new RegExp(`comp[a-z]{0,6}${SEP}mainten[a-z]{0,5}${SEP}(\\d+)`, "i"),
+    new RegExp(`${MAINT_WORD}${SEP}(\\d+)${SEP}${DONE_WORD}`, "i"),
+    new RegExp(`${MAINT_WORD}${SEP}${DONE_WORD}${SEP}(\\d+)`, "i"),
+    new RegExp(`${DONE_WORD}${SEP}(\\d+)${SEP}${MAINT_WORD}`, "i"),
+    new RegExp(`${DONE_WORD}${SEP}${MAINT_WORD}${SEP}(\\d+)`, "i"),
     // "Maintenance - N" (no "completed" keyword, just a number)
-    new RegExp(`mainten[a-z]{0,5}${SEP}(\\d+)(?:${SEP}[,.]|[,.]|$)`, "i"),
+    new RegExp(`${MAINT_WORD}${SEP}(\\d+)(?:${SEP}[,.]|[,.]|$)`, "i"),
   ],
 };
 
@@ -165,7 +184,7 @@ function preprocessMaintenanceLines(text: string): string {
     // and the next line starts with a digit
     if (
       i + 1 < lines.length &&
-      /^mainten[a-z]*[\s:.\-]*$/i.test(trimmed) &&
+      new RegExp(`^${MAINT_WORD}[\\s:.\\-]*$`, "i").test(trimmed) &&
       /^\d/.test(lines[i + 1].trim())
     ) {
       merged.push(trimmed + " " + lines[i + 1].trim());
@@ -199,8 +218,11 @@ export function extractMaintenanceCount(blocks: MessageBlock[]): number {
  *     on-going even when N = 0.
  */
 export function extractMaintenanceOngoing(blocks: MessageBlock[]): boolean {
-  const ONGOING_RE =
-    /\b(?:is|are|was|were)\s+(?:still\s+)?(?:on[\s-]?going|running|started|in[\s-]?progress|underway)\b|\bmaintenance\b[^\n]*\b(?:on[\s-]?going|running|started|in[\s-]?progress|underway)\b/i;
+  const ONGOING_RE = new RegExp(
+    `\\b(?:is|are|was|were)\\s+(?:still\\s+)?(?:on[\\s-]?going|running|started|in[\\s-]?progress|underway)\\b` +
+      `|\\b${MAINT_WORD}\\b[^\\n]*\\b(?:on[\\s-]?going|running|started|in[\\s-]?progress|underway)\\b`,
+    "i"
+  );
 
   for (const b of blocks) {
     const text = preprocessMaintenanceLines(b.text);
@@ -269,7 +291,7 @@ export function extractCompletedLinks(blocks: MessageBlock[]): string[] {
           const isNextStatus =
             /\bin[\s-]*re?v[a-z]*\b/i.test(nextLine) ||
             /\bin[\s-]*pro?g[a-z]*\b/i.test(nextLine) ||
-            /\bmainten[a-z]*\b/i.test(nextLine) ||
+            MAINT_SKIP_RE.test(nextLine) ||
             /\bover[\\s\\-]?due\b/i.test(nextLine);
 
           if (isNextStatus) break;
@@ -302,7 +324,7 @@ export function extractStatusCounts(blocks: MessageBlock[]): StatusCounts {
   return {
     inReview: sumField(blocks, PATTERNS.review),
     inProgress: sumField(blocks, PATTERNS.progress),
-    done: sumField(blocks, PATTERNS.done, /\bmainten[a-z]*\b/i),
+    done: sumField(blocks, PATTERNS.done, MAINT_SKIP_RE),
     overdueDependencies: sumField(blocks, PATTERNS.overdueDep),
     overdue: sumField(blocks, PATTERNS.overdue),
     maintenanceTotal: extractMaintenanceCount(blocks),
