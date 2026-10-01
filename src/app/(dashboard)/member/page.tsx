@@ -4,7 +4,10 @@ import { submissions, scheduleAssignments } from "@/db/schema";
 import { eq, desc, and, gte } from "drizzle-orm";
 import { todayInTeamTZ } from "@/lib/timezone";
 import SubmissionForm from "@/components/SubmissionForm";
+import SeoSubmissionForm from "@/components/SeoSubmissionForm";
 import MemberSubmissionHistory from "@/components/MemberSubmissionHistory";
+import { isSeoDepartment } from "@/lib/seo-report-formatter";
+import { departments } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +17,18 @@ export default async function MemberPage() {
 
   const { db } = await getRequestDeps();
   const today = todayInTeamTZ();
+
+  // Which report format does THIS member get? Resolved from their own
+  // department. Everyone else keeps the dev-team form untouched.
+  let departmentName: string | null = null;
+  if (session.userDepartmentId) {
+    const dept = await db.query.departments.findFirst({
+      where: eq(departments.id, session.userDepartmentId),
+      columns: { name: true },
+    });
+    departmentName = dept?.name ?? null;
+  }
+  const useSeoForm = isSeoDepartment(departmentName);
 
   // Load today's schedule assignment for this user
   const assignment = await db.query.scheduleAssignments.findFirst({
@@ -146,16 +161,29 @@ export default async function MemberPage() {
             <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#e2e8f0" }}>{today}</span>
           </div>
         </div>
-        <SubmissionForm
-          reportDate={today}
-          isAdmin={session.userRole === "admin" || session.userRole === "superadmin"}
-          existingSubmission={existing ? {
-            id: existing.id,
-            rawInput: existing.rawInput,
-            finalReport: existing.finalReport,
-            rawWhatsappText: existing.rawWhatsappText ?? undefined,
-          } : null}
-        />
+        {useSeoForm ? (
+          <SeoSubmissionForm
+            reportDate={today}
+            isAdmin={session.userRole === "admin" || session.userRole === "superadmin"}
+            existingSubmission={existing ? {
+              id: existing.id,
+              rawInput: existing.rawInput,
+              finalReport: existing.finalReport,
+              rawWhatsappText: existing.rawWhatsappText ?? undefined,
+            } : null}
+          />
+        ) : (
+          <SubmissionForm
+            reportDate={today}
+            isAdmin={session.userRole === "admin" || session.userRole === "superadmin"}
+            existingSubmission={existing ? {
+              id: existing.id,
+              rawInput: existing.rawInput,
+              finalReport: existing.finalReport,
+              rawWhatsappText: existing.rawWhatsappText ?? undefined,
+            } : null}
+          />
+        )}
       </div>
 
       {/* ── 14-Day History ────────────────────────────────────────── */}

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireSession, getRequestDeps, withErrorHandling } from "@/lib/api-helpers";
 import { requirePermission, can } from "@/lib/permissions";
-import { submissions, submissionEdits, teamTaskLinks } from "@/db/schema";
+import { submissions, submissionEdits, teamTaskLinks, users, departments } from "@/db/schema";
 import { eq, or, isNull } from "drizzle-orm";
-import { generateReport, deriveDependenciesCount, type ReportInput } from "@/lib/report-formatter";
+import { deriveDependenciesCount, type ReportInput } from "@/lib/report-formatter";
+import { generateReportForDepartment, type SeoSubmissionFields } from "@/lib/report-router";
 import { isWithinEditCutoff } from "@/lib/timezone";
 
 // ---------------------------------------------------------------------------
@@ -58,6 +59,10 @@ interface PatchSubmissionBody {
   maintenanceEnabled?: boolean;
   /** Running total of maintenance completions today */
   maintenanceTotal?: number | null;
+  // ── SEO-department-only fields (ignored for dev-team members) ───────────
+  inReviewLinks?: string[] | null;
+  inProgressLinks?: string[] | null;
+  overdueLinks?: string[] | null;
   [key: string]: unknown;
 }
 
@@ -152,7 +157,53 @@ export async function PATCH(
         : (storedRaw.maintenanceTotal as number | undefined) ?? null,
     };
 
-    const finalReport = body.finalReport ?? generateReport(input);
+    // Route by the SUBMISSION OWNER's department (not the editor's), so a
+    // superadmin editing an SEO member's report still regenerates the SEO
+    // format and dev-team reports are never switched to SEO by accident.
+    let departmentName: string | null = null;
+    if (row.userId) {
+      const owner = await db.query.users.findFirst({
+        where: eq(users.id, row.userId),
+        columns: { departmentId: true },
+      });
+      if (owner?.departmentId) {
+        const dept = await db.query.departments.findFirst({
+          where: eq(departments.id, owner.departmentId),
+          columns: { name: true },
+        });
+        departmentName = dept?.name ?? null;
+      }
+    }
+
+    const seoFields: SeoSubmissionFields = {
+      tasksDone: input.tasksDone,
+      tasksDoneLinks: input.tasksDoneLinks,
+      inReview: input.inReview,
+      inReviewLinks:
+        body.inReviewLinks !== undefined
+          ? body.inReviewLinks
+          : (storedRaw.inReviewLinks as string[] | undefined) ?? null,
+      inProgress: input.inProgress,
+      inProgressLinks:
+        body.inProgressLinks !== undefined
+          ? body.inProgressLinks
+          : (storedRaw.inProgressLinks as string[] | undefined) ?? null,
+      overdueTasks: input.overdueTasks,
+      overdueLinks:
+        body.overdueLinks !== undefined
+          ? body.overdueLinks
+          : (storedRaw.overdueLinks as string[] | undefined) ?? null,
+    };
+
+    const routed = generateReportForDepartment(
+      departmentName,
+      row.reportDate,
+      input,
+      seoFields
+    );
+
+    // A manually edited report body always wins — only regenerate when absent.
+    const finalReport = body.finalReport ?? routed.report;
 
     // When the report is regenerated, store the derived dependencies count so
     // the DB column matches the report text. Manual text overrides keep the
@@ -165,6 +216,9 @@ export async function PATCH(
       .update(submissions)
       .set({
         ...input,
+        // SEO reports derive the total from the link lists, so persist the
+        // number that was actually printed. Dev members keep their own value.
+        totalAssigned: routed.totalAssigned,
         overdueDependencies: storedDepCount,
         rawInput: JSON.stringify({ ...storedRaw, ...body }),
         finalReport,
@@ -174,6 +228,6 @@ export async function PATCH(
       })
       .where(eq(submissions.id, id));
 
-    return NextResponse.json({ id, finalReport });
+    return NextResponse.json({ id, finalReport, format: routed.format });
   });
 }

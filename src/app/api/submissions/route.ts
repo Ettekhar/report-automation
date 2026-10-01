@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireSession, getRequestDeps, withErrorHandling } from "@/lib/api-helpers";
 import { requirePermission } from "@/lib/permissions";
-import { submissions, teamTaskLinks, users } from "@/db/schema";
+import { submissions, teamTaskLinks, users, departments } from "@/db/schema";
 import { eq, desc, and, or, isNull, inArray } from "drizzle-orm";
-import { generateReport, deriveDependenciesCount, type ReportInput } from "@/lib/report-formatter";
+import { deriveDependenciesCount, type ReportInput } from "@/lib/report-formatter";
+import { generateReportForDepartment, type SeoSubmissionFields } from "@/lib/report-router";
 import type { Role } from "@/lib/permissions";
 
 // ---------------------------------------------------------------------------
@@ -113,7 +114,37 @@ interface PostSubmissionBody {
   maintenanceEnabled?: boolean;
   /** Running total of maintenance completions today */
   maintenanceTotal?: number | null;
+  // ── SEO-department-only fields (ignored for dev-team members) ───────────
+  /** Links listed under the "in review" section */
+  inReviewLinks?: string[] | null;
+  /** Links listed under the "in progress" section */
+  inProgressLinks?: string[] | null;
+  /** Links listed under the "overdue" section */
+  overdueLinks?: string[] | null;
   [key: string]: unknown;
+}
+
+/** Split the legacy single-string done-link into an array. */
+function splitLegacyLinks(legacy: string | null | undefined): string[] | null {
+  if (!legacy) return null;
+  const arr = legacy.split(/[\r\n]+/).map((s) => s.trim()).filter(Boolean);
+  return arr.length > 0 ? arr : null;
+}
+
+/**
+ * Resolve the submitting member's department NAME.
+ * Returns null when the user has no department assigned.
+ */
+async function getDepartmentName(
+  db: Awaited<ReturnType<typeof getRequestDeps>>["db"],
+  departmentId: string | null | undefined
+): Promise<string | null> {
+  if (!departmentId) return null;
+  const row = await db.query.departments.findFirst({
+    where: eq(departments.id, departmentId),
+    columns: { name: true },
+  });
+  return row?.name ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +190,26 @@ export async function POST(req: Request) {
       maintenanceTotal: body.maintenanceTotal ?? null,
     };
 
-    const finalReport = generateReport(input);
+    // Route by the SUBMITTING member's own department: SEO members get the SEO
+    // format, everyone else (including users with no department) keeps the
+    // dev-team format exactly as before.
+    const departmentName = await getDepartmentName(db, session.userDepartmentId);
+    const seoFields: SeoSubmissionFields = {
+      tasksDone: input.tasksDone,
+      tasksDoneLinks: input.tasksDoneLinks ?? splitLegacyLinks(input.tasksDoneLink),
+      inReview: input.inReview,
+      inReviewLinks: body.inReviewLinks ?? null,
+      inProgress: input.inProgress,
+      inProgressLinks: body.inProgressLinks ?? null,
+      overdueTasks: input.overdueTasks,
+      overdueLinks: body.overdueLinks ?? null,
+    };
+    const { report: finalReport, format, totalAssigned } = generateReportForDepartment(
+      departmentName,
+      body.date,
+      input,
+      seoFields
+    );
     const id = crypto.randomUUID();
 
     await db.insert(submissions).values({
@@ -168,7 +218,7 @@ export async function POST(req: Request) {
       reportDate: body.date,
       rawWhatsappText: body.rawWhatsappText ?? null,
       rawInput: JSON.stringify(body),
-      totalAssigned: input.totalAssigned,
+      totalAssigned,
       tasksDone: input.tasksDone,
       tasksDoneLink: input.tasksDoneLink,
       inReview: input.inReview,
@@ -181,6 +231,6 @@ export async function POST(req: Request) {
       finalReport,
     });
 
-    return NextResponse.json({ id, finalReport }, { status: 201 });
+    return NextResponse.json({ id, finalReport, format }, { status: 201 });
   });
 }
