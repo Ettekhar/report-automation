@@ -56,10 +56,14 @@ function toLines(s: string): string[] {
 function toText(arr: string[]): string {
   return arr.join("\n");
 }
-function num(v: string | number): number {
-  if (v === "" || v === null || v === undefined) return 0;
+/**
+ * Blank count field -> null, which tells the server "no number was given, count
+ * the links". A typed 0 stays 0 and is reported as 0.
+ */
+function num(v: string | number): number | null {
+  if (v === "" || v === null || v === undefined) return null;
   const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? n : null;
 }
 
 export default function SeoSubmissionForm({
@@ -190,7 +194,8 @@ export default function SeoSubmissionForm({
   ) => {
     const links = toLines(fields[key]);
     const typed = fields[countKey];
-    const effective = num(typed) > 0 ? num(typed) : links.length;
+    const parsed = num(typed);
+    const effective = parsed !== null ? parsed : links.length;
     return (
       <div className="field" style={{ marginBottom: "1rem" }}>
         <label className="label" htmlFor={`seo-${key}`}>{label}</label>
@@ -215,7 +220,7 @@ export default function SeoSubmissionForm({
         <p style={{ fontSize: "0.75rem", color: "#64748b", marginTop: 4 }}>
           {links.length} link{links.length === 1 ? "" : "s"} &rarr; count{" "}
           <strong>{effective}</strong>
-          {num(typed) > 0 ? " (typed)" : " (from links)"}
+          {parsed !== null ? " (typed)" : " (from links)"}
         </p>
       </div>
     );

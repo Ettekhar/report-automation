@@ -55,13 +55,19 @@ export const SEO_REPORT_CONFIG = {
 export interface SeoReportInput {
   /** ISO date string YYYY-MM-DD */
   date: string;
-  tasksDone: number;
+  /**
+   * Counts are nullable on purpose: `null` means "no number was written, count
+   * the links instead", while an explicit `0` is a real answer and must be
+   * honoured. Conflating the two would print a link count for a section the
+   * member deliberately zeroed out.
+   */
+  tasksDone: number | null;
   tasksDoneLinks: string[];
-  inReview: number;
+  inReview: number | null;
   inReviewLinks?: string[];
-  inProgress: number;
+  inProgress: number | null;
   inProgressLinks: string[];
-  overdue: number;
+  overdue: number | null;
   overdueLinks: string[];
 }
 
@@ -91,6 +97,23 @@ function formatDateLabel(iso: string): string {
 }
 
 /**
+ * Resolve one section's count.
+ *
+ * The team's rule is "if number is given good, if not then we count the links".
+ * A number of 0 is still a number the member wrote, so it is honoured; only
+ * `null` / `undefined` / NaN falls back to counting the links.
+ */
+export function resolveSeoSectionCount(
+  count: number | null | undefined,
+  links: string[]
+): number {
+  if (typeof count === "number" && Number.isFinite(count)) {
+    return Math.max(0, Math.trunc(count));
+  }
+  return links.length;
+}
+
+/**
  * True when the given department name should use the SEO report format.
  * Case-insensitive substring match against SEO_REPORT_CONFIG.departmentNames.
  */
@@ -107,15 +130,15 @@ export function generateSeoReport(input: SeoReportInput): string {
   const cfg = SEO_REPORT_CONFIG;
   const lines: string[] = [];
 
-  // Counts fall back to the number of links when the count is not supplied.
   const doneLinks = input.tasksDoneLinks.filter(Boolean);
+  const reviewLinks = (input.inReviewLinks ?? []).filter(Boolean);
   const progressLinks = input.inProgressLinks.filter(Boolean);
   const overdueLinks = input.overdueLinks.filter(Boolean);
 
-  const doneCount = input.tasksDone > 0 ? input.tasksDone : doneLinks.length;
-  const reviewCount = input.inReview > 0 ? input.inReview : (input.inReviewLinks ?? []).length;
-  const progressCount = input.inProgress > 0 ? input.inProgress : progressLinks.length;
-  const overdueCount = input.overdue > 0 ? input.overdue : overdueLinks.length;
+  const doneCount = resolveSeoSectionCount(input.tasksDone, doneLinks);
+  const reviewCount = resolveSeoSectionCount(input.inReview, reviewLinks);
+  const progressCount = resolveSeoSectionCount(input.inProgress, progressLinks);
+  const overdueCount = resolveSeoSectionCount(input.overdue, overdueLinks);
 
   // Total Assigned is derived: done + in-review + in-progress, which is what
   // all three supplied samples show (6+0, 10+2, 6+3).
@@ -130,7 +153,7 @@ export function generateSeoReport(input: SeoReportInput): string {
   // In review — omitted entirely when there is none.
   if (reviewCount > 0) {
     lines.push(`${cfg.labels.inReview} = ${seoPad(reviewCount)}`);
-    (input.inReviewLinks ?? []).filter(Boolean).forEach((u) => lines.push(u));
+    reviewLinks.forEach((u) => lines.push(u));
   }
 
   lines.push(`${cfg.labels.inProgress} = ${seoPad(progressCount)}`);

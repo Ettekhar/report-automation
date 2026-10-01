@@ -20,6 +20,7 @@ import { generateReport, type ReportInput } from "@/lib/report-formatter";
 import {
   generateSeoReport,
   isSeoDepartment,
+  resolveSeoSectionCount,
   type SeoReportInput,
 } from "@/lib/seo-report-formatter";
 
@@ -45,7 +46,10 @@ function splitLinks(value: string[] | null | undefined): string[] {
 
 /**
  * Build the SEO formatter input from stored/submitted fields.
- * Counts fall back to link counts inside generateSeoReport.
+ *
+ * Counts are passed through as-is: `null`/`undefined` means "no number was
+ * written, count the links", while an explicit `0` is honoured. Callers must
+ * therefore pass the RAW submitted value and not a `?? 0` default.
  */
 export function buildSeoInput(
   date: string,
@@ -58,25 +62,15 @@ export function buildSeoInput(
 
   return {
     date,
-    tasksDone: fields.tasksDone ?? 0,
+    tasksDone: fields.tasksDone ?? null,
     tasksDoneLinks,
-    inReview: fields.inReview ?? 0,
+    inReview: fields.inReview ?? null,
     inReviewLinks,
-    inProgress: fields.inProgress ?? 0,
+    inProgress: fields.inProgress ?? null,
     inProgressLinks,
-    overdue: fields.overdueTasks ?? 0,
+    overdue: fields.overdueTasks ?? null,
     overdueLinks,
   };
-}
-
-/**
- * Resolve a section's effective count inside the SEO formatter, so callers can
- * persist the same numbers the report printed. Mirrors the fallback rule used
- * by generateSeoReport: an explicit count wins, otherwise count the links.
- */
-function effectiveCount(count: number | null | undefined, links: string[]): number {
-  if (typeof count === "number" && count > 0) return count;
-  return links.length;
 }
 
 export interface RouteResult {
@@ -109,10 +103,12 @@ export function generateReportForDepartment(
     return {
       format: "seo",
       report: generateSeoReport(seoInput),
+      // Reuse the formatter's own resolver so the persisted number is exactly
+      // what the report printed.
       totalAssigned:
-        effectiveCount(seoInput.tasksDone, seoInput.tasksDoneLinks) +
-        effectiveCount(seoInput.inReview, seoInput.inReviewLinks ?? []) +
-        effectiveCount(seoInput.inProgress, seoInput.inProgressLinks),
+        resolveSeoSectionCount(seoInput.tasksDone, seoInput.tasksDoneLinks) +
+        resolveSeoSectionCount(seoInput.inReview, seoInput.inReviewLinks ?? []) +
+        resolveSeoSectionCount(seoInput.inProgress, seoInput.inProgressLinks),
     };
   }
   return {

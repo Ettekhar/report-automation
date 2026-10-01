@@ -175,20 +175,32 @@ export async function PATCH(
       }
     }
 
+    // Counts come from the RAW body / stored rawInput, not from input.*, so a
+    // blank field stays "no number given" and the formatter counts the links.
+    // An explicit 0 is preserved as an explicit 0.
+    const storedNum = (key: string): number | null => {
+      const v = storedRaw[key];
+      return typeof v === "number" && Number.isFinite(v) ? v : null;
+    };
+    const bodyNum = (v: unknown): number | null =>
+      typeof v === "number" && Number.isFinite(v) ? v : null;
+
     const seoFields: SeoSubmissionFields = {
-      tasksDone: input.tasksDone,
+      tasksDone: body.tasksDone !== undefined ? bodyNum(body.tasksDone) : storedNum("tasksDone"),
       tasksDoneLinks: input.tasksDoneLinks,
-      inReview: input.inReview,
+      inReview: body.inReview !== undefined ? bodyNum(body.inReview) : storedNum("inReview"),
       inReviewLinks:
         body.inReviewLinks !== undefined
           ? body.inReviewLinks
           : (storedRaw.inReviewLinks as string[] | undefined) ?? null,
-      inProgress: input.inProgress,
+      inProgress:
+        body.inProgress !== undefined ? bodyNum(body.inProgress) : storedNum("inProgress"),
       inProgressLinks:
         body.inProgressLinks !== undefined
           ? body.inProgressLinks
           : (storedRaw.inProgressLinks as string[] | undefined) ?? null,
-      overdueTasks: input.overdueTasks,
+      overdueTasks:
+        body.overdueTasks !== undefined ? bodyNum(body.overdueTasks) : storedNum("overdueTasks"),
       overdueLinks:
         body.overdueLinks !== undefined
           ? body.overdueLinks

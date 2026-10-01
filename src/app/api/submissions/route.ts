@@ -194,14 +194,18 @@ export async function POST(req: Request) {
     // format, everyone else (including users with no department) keeps the
     // dev-team format exactly as before.
     const departmentName = await getDepartmentName(db, session.userDepartmentId);
+    // NOTE: pass the RAW body counts (not input.*), because a missing count
+    // must stay "no number given" so the formatter falls back to counting the
+    // links. `input.tasksDone` is `body.tasksDone ?? 0`, which would turn a
+    // blank field into an explicit 0 and suppress the link count.
     const seoFields: SeoSubmissionFields = {
-      tasksDone: input.tasksDone,
+      tasksDone: body.tasksDone ?? null,
       tasksDoneLinks: input.tasksDoneLinks ?? splitLegacyLinks(input.tasksDoneLink),
-      inReview: input.inReview,
+      inReview: body.inReview ?? null,
       inReviewLinks: body.inReviewLinks ?? null,
-      inProgress: input.inProgress,
+      inProgress: body.inProgress ?? null,
       inProgressLinks: body.inProgressLinks ?? null,
-      overdueTasks: input.overdueTasks,
+      overdueTasks: body.overdueTasks ?? null,
       overdueLinks: body.overdueLinks ?? null,
     };
     const { report: finalReport, format, totalAssigned } = generateReportForDepartment(
