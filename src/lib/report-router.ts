@@ -83,6 +83,18 @@ export interface RouteResult {
    * done + in-review + in-progress total, matching the printed report.
    */
   totalAssigned: number | null;
+  /**
+   * Per-section counts to store in the denormalised submissions columns, so the
+   * admin dashboard agrees with the report text.
+   * For dev these are the caller's own values (unchanged behaviour); for SEO
+   * they are the resolved counts, i.e. the numbers the report actually printed.
+   */
+  counts: {
+    tasksDone: number;
+    inReview: number;
+    inProgress: number;
+    overdue: number;
+  };
 }
 
 /**
@@ -103,17 +115,29 @@ export function generateReportForDepartment(
     return {
       format: "seo",
       report: generateSeoReport(seoInput),
-      // Reuse the formatter's own resolver so the persisted number is exactly
-      // what the report printed.
+      // Reuse the formatter's own resolver so the persisted numbers are
+      // exactly what the report printed.
       totalAssigned:
         resolveSeoSectionCount(seoInput.tasksDone, seoInput.tasksDoneLinks) +
         resolveSeoSectionCount(seoInput.inReview, seoInput.inReviewLinks ?? []) +
         resolveSeoSectionCount(seoInput.inProgress, seoInput.inProgressLinks),
+      counts: {
+        tasksDone: resolveSeoSectionCount(seoInput.tasksDone, seoInput.tasksDoneLinks),
+        inReview: resolveSeoSectionCount(seoInput.inReview, seoInput.inReviewLinks ?? []),
+        inProgress: resolveSeoSectionCount(seoInput.inProgress, seoInput.inProgressLinks),
+        overdue: resolveSeoSectionCount(seoInput.overdue, seoInput.overdueLinks),
+      },
     };
   }
   return {
     format: "dev",
     report: generateReport(devInput),
     totalAssigned: devInput.totalAssigned ?? null,
+    counts: {
+      tasksDone: devInput.tasksDone,
+      inReview: devInput.inReview,
+      inProgress: devInput.inProgress,
+      overdue: devInput.overdueTasks,
+    },
   };
 }

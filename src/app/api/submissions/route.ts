@@ -208,12 +208,8 @@ export async function POST(req: Request) {
       overdueTasks: body.overdueTasks ?? null,
       overdueLinks: body.overdueLinks ?? null,
     };
-    const { report: finalReport, format, totalAssigned } = generateReportForDepartment(
-      departmentName,
-      body.date,
-      input,
-      seoFields
-    );
+    const { report: finalReport, format, totalAssigned, counts } =
+      generateReportForDepartment(departmentName, body.date, input, seoFields);
     const id = crypto.randomUUID();
 
     await db.insert(submissions).values({
@@ -223,11 +219,11 @@ export async function POST(req: Request) {
       rawWhatsappText: body.rawWhatsappText ?? null,
       rawInput: JSON.stringify(body),
       totalAssigned,
-      tasksDone: input.tasksDone,
+      tasksDone: counts.tasksDone,
       tasksDoneLink: input.tasksDoneLink,
-      inReview: input.inReview,
-      inProgress: input.inProgress,
-      overdueTasks: input.overdueTasks,
+      inReview: counts.inReview,
+      inProgress: counts.inProgress,
+      overdueTasks: counts.overdue,
       // Store the derived count so the DB column always matches the report text
       overdueDependencies: deriveDependenciesCount(input),
       overdueDepNote: input.overdueDepNote,

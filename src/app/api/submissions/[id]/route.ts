@@ -228,9 +228,14 @@ export async function PATCH(
       .update(submissions)
       .set({
         ...input,
-        // SEO reports derive the total from the link lists, so persist the
-        // number that was actually printed. Dev members keep their own value.
+        // SEO reports derive counts from the link lists, so persist the numbers
+        // that were actually printed. For dev members these are exactly the
+        // values already in `input`, so nothing changes.
         totalAssigned: routed.totalAssigned,
+        tasksDone: routed.counts.tasksDone,
+        inReview: routed.counts.inReview,
+        inProgress: routed.counts.inProgress,
+        overdueTasks: routed.counts.overdue,
         overdueDependencies: storedDepCount,
         rawInput: JSON.stringify({ ...storedRaw, ...body }),
         finalReport,
